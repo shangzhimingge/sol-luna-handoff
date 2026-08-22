@@ -6,7 +6,12 @@ $ErrorActionPreference = 'Stop'
 $skillDirectory = Split-Path -Parent $PSScriptRoot
 $installerPath = Join-Path $skillDirectory 'scripts\install-agents.ps1'
 $assetsDirectory = Join-Path $skillDirectory 'assets'
-$agentFiles = @('sol-planner.toml', 'luna-executor.toml')
+$agentFiles = @(
+    'sol-planner.toml',
+    'sol-compact-planner.toml',
+    'luna-executor.toml',
+    'luna-fast-executor.toml'
+)
 $startMarker = '<!-- BEGIN SOL-LUNA-HANDOFF MANAGED BLOCK -->'
 $endMarker = '<!-- END SOL-LUNA-HANDOFF MANAGED BLOCK -->'
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
@@ -34,14 +39,16 @@ function New-TemporaryCodexHome {
 function Invoke-TestInstaller {
     param(
         [Parameter(Mandatory)]
-        [string]$CodexHome
+        [string]$CodexHome,
+
+        [switch]$WhatIf
     )
 
     $hadCodexHome = Test-Path Env:CODEX_HOME
     $previousCodexHome = $env:CODEX_HOME
     try {
         $env:CODEX_HOME = $CodexHome
-        & $installerPath | Out-Null
+        & $installerPath -WhatIf:$WhatIf | Out-Null
     } finally {
         if ($hadCodexHome) {
             $env:CODEX_HOME = $previousCodexHome
@@ -84,33 +91,37 @@ function Get-DirectoryState {
     return "DIRECTORY`n$($rows -join "`n")"
 }
 
-function Test-DifferingAgentCollision {
-    $codexHome = New-TemporaryCodexHome
-    try {
-        $agentsDirectory = Join-Path $codexHome 'agents'
-        [System.IO.Directory]::CreateDirectory($agentsDirectory) | Out-Null
-        $collisionPath = Join-Path $agentsDirectory 'sol-planner.toml'
-        [System.IO.File]::WriteAllText($collisionPath, 'existing custom definition', $utf8NoBom)
-        $globalAgentsPath = Join-Path $codexHome 'AGENTS.md'
-        [System.IO.File]::WriteAllText($globalAgentsPath, "# Existing global rules`n", $utf8NoBom)
-
-        $agentsBefore = Get-DirectoryState $agentsDirectory
-        $globalBefore = Get-FileState $globalAgentsPath
-        $caughtMessage = $null
+function Test-DifferingAgentCollisions {
+    foreach ($fileName in $agentFiles) {
+        $codexHome = New-TemporaryCodexHome
         try {
-            Invoke-TestInstaller $codexHome
-        } catch {
-            $caughtMessage = $_.Exception.Message
-        }
+            $agentsDirectory = Join-Path $codexHome 'agents'
+            [System.IO.Directory]::CreateDirectory($agentsDirectory) | Out-Null
+            $collisionPath = Join-Path $agentsDirectory $fileName
+            [System.IO.File]::WriteAllText($collisionPath, 'existing custom definition', $utf8NoBom)
+            $globalAgentsPath = Join-Path $codexHome 'AGENTS.md'
+            [System.IO.File]::WriteAllText($globalAgentsPath, "# Existing global rules`n", $utf8NoBom)
 
-        Assert-True ($null -ne $caughtMessage) 'a differing agent must abort installation'
-        Assert-True ($caughtMessage.Contains($collisionPath)) 'the collision error must name the destination'
-        Assert-True ((Get-DirectoryState $agentsDirectory) -ceq $agentsBefore) 'collision abort must leave the agents directory unchanged'
-        Assert-True ((Get-FileState $globalAgentsPath) -ceq $globalBefore) 'collision abort must leave AGENTS.md unchanged'
-        Assert-True (-not (Test-Path -LiteralPath (Join-Path $agentsDirectory 'luna-executor.toml'))) 'collision abort must not create the other agent'
-        Write-Output 'PASS differing-agent collision aborts without mutation'
-    } finally {
-        Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
+            $agentsBefore = Get-DirectoryState $agentsDirectory
+            $globalBefore = Get-FileState $globalAgentsPath
+            $caughtMessage = $null
+            try {
+                Invoke-TestInstaller $codexHome
+            } catch {
+                $caughtMessage = $_.Exception.Message
+            }
+
+            Assert-True ($null -ne $caughtMessage) "a differing $fileName must abort installation"
+            Assert-True ($caughtMessage.Contains($collisionPath)) 'the collision error must name the destination'
+            Assert-True ((Get-DirectoryState $agentsDirectory) -ceq $agentsBefore) 'collision abort must leave the agents directory unchanged'
+            Assert-True ((Get-FileState $globalAgentsPath) -ceq $globalBefore) 'collision abort must leave AGENTS.md unchanged'
+            foreach ($otherFileName in $agentFiles | Where-Object { $_ -cne $fileName }) {
+                Assert-True (-not (Test-Path -LiteralPath (Join-Path $agentsDirectory $otherFileName))) 'collision preflight must not install another agent'
+            }
+            Write-Output "PASS differing $fileName collision aborts without mutation"
+        } finally {
+            Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -135,6 +146,68 @@ function Test-FreshInstall {
         Write-Output 'PASS fresh install copies agents and global block'
     } finally {
         Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-V100LunaExecutorContent {
+    param(
+        [ValidateSet('LF', 'CRLF')]
+        [string]$NewlineStyle = 'LF'
+    )
+
+    $newline = if ($NewlineStyle -ceq 'CRLF') { "`r`n" } else { "`n" }
+    return (@(
+        'name = "luna_executor"',
+        'description = "Implements an approved plan, runs its checks, and returns concise evidence."',
+        'model = "gpt-5.6-luna"',
+        'model_reasoning_effort = "medium"',
+        'sandbox_mode = "workspace-write"',
+        'developer_instructions = """',
+        'Execute the supplied plan as a binding contract. Make only in-scope changes, run every specified verification command, inspect the resulting diff, and report changed files, command outputs, and remaining concerns. If context is missing, return NEEDS_CONTEXT with exact missing facts. Do not redesign the task or broaden scope.',
+        '"""'
+    ) -join $newline) + $newline
+}
+
+function Test-V100Upgrade {
+    foreach ($newlineStyle in @('LF', 'CRLF')) {
+        $codexHome = New-TemporaryCodexHome
+        try {
+            $agentsDirectory = Join-Path $codexHome 'agents'
+            [System.IO.Directory]::CreateDirectory($agentsDirectory) | Out-Null
+            [System.IO.File]::WriteAllBytes(
+                (Join-Path $agentsDirectory 'sol-planner.toml'),
+                [System.IO.File]::ReadAllBytes((Join-Path $assetsDirectory 'sol-planner.toml'))
+            )
+            [System.IO.File]::WriteAllBytes(
+                (Join-Path $agentsDirectory 'luna-executor.toml'),
+                $utf8NoBom.GetBytes((Get-V100LunaExecutorContent -NewlineStyle $newlineStyle))
+            )
+
+            $oldManagedBlock = @(
+                $startMarker,
+                '## Sol-Luna project workflow',
+                '',
+                'For every project artifact task, use the fixed Sol-Luna-Sol route.',
+                $endMarker
+            ) -join "`n"
+            $globalAgentsPath = Join-Path $codexHome 'AGENTS.md'
+            [System.IO.File]::WriteAllText($globalAgentsPath, "# Keep this rule`n`n$oldManagedBlock`n", $utf8NoBom)
+
+            Invoke-TestInstaller $codexHome
+
+            foreach ($fileName in $agentFiles) {
+                Assert-True (
+                    (Get-FileHash -LiteralPath (Join-Path $agentsDirectory $fileName) -Algorithm SHA256).Hash -ceq
+                    (Get-FileHash -LiteralPath (Join-Path $assetsDirectory $fileName) -Algorithm SHA256).Hash
+                ) "v1.0 $newlineStyle upgrade must install the canonical $fileName bytes"
+            }
+            $globalContent = [System.IO.File]::ReadAllText($globalAgentsPath)
+            Assert-True ($globalContent.Contains('# Keep this rule')) 'v1.0 upgrade must preserve unrelated global guidance'
+            Assert-True ($globalContent.Contains('adaptive Tier 1, Tier 2, and Tier 3')) 'v1.0 upgrade must replace the managed rule'
+            Write-Output "PASS v1.0 $newlineStyle built-in agent upgrades to v1.1"
+        } finally {
+            Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -182,6 +255,7 @@ function Test-IdenticalFilesAreIdempotent {
         $agentsAfterFirstRun = Get-DirectoryState $agentsDirectory
         $globalAfterFirstRun = Get-FileState $globalAgentsPath
         $globalContent = [System.IO.File]::ReadAllText($globalAgentsPath)
+        Assert-True ($globalContent.Contains('# Existing global rules')) 'install must preserve unrelated global guidance'
         Assert-True (([regex]::Matches($globalContent, [regex]::Escape($startMarker))).Count -eq 1) 'the managed start marker must occur once'
         Assert-True (([regex]::Matches($globalContent, [regex]::Escape($endMarker))).Count -eq 1) 'the managed end marker must occur once'
 
@@ -195,8 +269,89 @@ function Test-IdenticalFilesAreIdempotent {
     }
 }
 
-Test-DifferingAgentCollision
+function Test-WhatIfDoesNotMutate {
+    $codexHome = New-TemporaryCodexHome
+    try {
+        $globalAgentsPath = Join-Path $codexHome 'AGENTS.md'
+        [System.IO.File]::WriteAllText($globalAgentsPath, "# Existing global rules`n", $utf8NoBom)
+        $homeBefore = Get-DirectoryState $codexHome
+
+        Invoke-TestInstaller -CodexHome $codexHome -WhatIf
+
+        Assert-True ((Get-DirectoryState $codexHome) -ceq $homeBefore) '-WhatIf must not mutate CODEX_HOME'
+        Write-Output 'PASS -WhatIf performs no mutation'
+    } finally {
+        Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-AdaptiveRoutingContracts {
+    $utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
+    $skillPath = Join-Path $skillDirectory 'SKILL.md'
+    $skill = [System.IO.File]::ReadAllText($skillPath, $utf8Strict)
+    $globalRule = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'global-agents.md'), $utf8Strict)
+    $interfaceMetadata = [System.IO.File]::ReadAllText((Join-Path $skillDirectory 'agents\openai.yaml'), $utf8Strict)
+
+    Assert-True ($skill.Contains('Tier 1')) 'Skill must define Tier 1'
+    Assert-True ($skill.Contains('Tier 2')) 'Skill must define Tier 2'
+    Assert-True ($skill.Contains('Tier 3')) 'Skill must define Tier 3'
+    Assert-True ($skill.Contains('at most 2 expected changed files')) 'Tier 1 must cap files at two'
+    Assert-True ($skill.Contains('at most 100 expected changed lines')) 'Tier 1 must cap changed lines at 100'
+    Assert-True ($skill.Contains('exactly 1 subsystem')) 'Tier 1 must require one subsystem'
+    Assert-True ($skill.Contains('Default to Tier 2')) 'bounded non-Tier-1 work must deterministically default to Tier 2'
+    foreach ($risk in @('security', 'authentication', 'authorization', 'cryptography', 'data migration', 'destructive operation', 'deployment', 'public API', 'concurrency', 'dependency migration', 'architecture', 'ambiguous requirements')) {
+        Assert-True ($skill.Contains($risk)) "Tier 3 must include the $risk predicate"
+    }
+    Assert-True ($skill.Contains('more than 8 expected changed files')) 'Tier 3 must apply above eight files'
+    Assert-True ($skill.Contains('Never downgrade after editing starts')) 'routing must prohibit post-edit downgrades'
+    Assert-True ($skill.Contains('500 output tokens')) 'compact plans must be capped at 500 output tokens'
+    Assert-True ($skill.Contains('300 output tokens')) 'executor reports must be capped at 300 output tokens'
+    Assert-True ($skill.Contains('After 2 correction rounds')) 'two correction rounds must trigger replanning'
+
+    Assert-True ($globalRule.Contains('load and follow `$sol-luna-handoff`')) 'global rule must load the Skill'
+    Assert-True ($globalRule.Contains('select the route')) 'global rule must delegate adaptive route selection'
+    Assert-True (-not $globalRule.Contains('Route the work through Sol planning, Luna execution, and Sol verification')) 'global rule must not mandate the fixed pipeline'
+    Assert-True ($interfaceMetadata.Contains('adaptive')) 'interface metadata must describe adaptive routing'
+    Assert-True ($interfaceMetadata.Contains('lowest-cost suitable tier')) 'interface prompt must request the lowest-cost suitable tier'
+    Assert-True (-not $interfaceMetadata.Contains('Sol planning, Luna execution, and Sol verification')) 'interface metadata must not mandate the fixed pipeline'
+
+    $expectedAgents = @(
+        @{ File = 'sol-planner.toml'; Name = 'sol_planner'; Model = 'gpt-5.6-sol'; Effort = 'high'; Sandbox = 'read-only' },
+        @{ File = 'sol-compact-planner.toml'; Name = 'sol_compact_planner'; Model = 'gpt-5.6-sol'; Effort = 'medium'; Sandbox = 'read-only' },
+        @{ File = 'luna-executor.toml'; Name = 'luna_executor'; Model = 'gpt-5.6-luna'; Effort = 'medium'; Sandbox = 'workspace-write' },
+        @{ File = 'luna-fast-executor.toml'; Name = 'luna_fast_executor'; Model = 'gpt-5.6-luna'; Effort = 'low'; Sandbox = 'workspace-write' }
+    )
+    foreach ($agent in $expectedAgents) {
+        $content = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory $agent.File), $utf8Strict)
+        Assert-True ($content -match "(?m)^name = `"$([regex]::Escape($agent.Name))`"$") "$($agent.File) must have the expected name"
+        Assert-True ($content -match "(?m)^model = `"$([regex]::Escape($agent.Model))`"$") "$($agent.File) must have the expected model"
+        Assert-True ($content -match "(?m)^model_reasoning_effort = `"$([regex]::Escape($agent.Effort))`"$") "$($agent.File) must have the expected reasoning effort"
+        Assert-True ($content -match "(?m)^sandbox_mode = `"$([regex]::Escape($agent.Sandbox))`"$") "$($agent.File) must have the expected sandbox"
+    }
+    $compactPlanner = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'sol-compact-planner.toml'), $utf8Strict)
+    $executor = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'luna-executor.toml'), $utf8Strict)
+    $fastExecutor = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'luna-fast-executor.toml'), $utf8Strict)
+    Assert-True ($compactPlanner.Contains('500 output tokens')) 'compact planner instructions must enforce the plan budget'
+    Assert-True ($executor.Contains('300 output tokens')) 'standard executor instructions must enforce the report budget'
+    Assert-True ($fastExecutor.Contains('300 output tokens')) 'fast executor instructions must enforce the report budget'
+    Assert-True ($fastExecutor.Contains('self-verif')) 'fast executor instructions must require self-verification'
+
+    $frontmatter = [regex]::Match($skill, '(?s)\A---\r?\n(.*?)\r?\n---').Groups[1].Value
+    Assert-True (([regex]::Matches($frontmatter, '(?m)^[A-Za-z_-]+:')).Count -eq 2) 'Skill frontmatter must remain discovery-only with name and description'
+
+    foreach ($file in Get-ChildItem -LiteralPath $skillDirectory -Recurse -File) {
+        $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+        Assert-True (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) "$($file.Name) must not contain a UTF-8 BOM"
+        [void][System.IO.File]::ReadAllText($file.FullName, $utf8Strict)
+    }
+    Write-Output 'PASS adaptive routing, agent configuration, frontmatter, and UTF-8 contracts'
+}
+
+Test-DifferingAgentCollisions
 Test-FreshInstall
+Test-AdaptiveRoutingContracts
+Test-V100Upgrade
 Test-MalformedGlobalMarkers
 Test-IdenticalFilesAreIdempotent
+Test-WhatIfDoesNotMutate
 Write-Output 'ALL TESTS PASSED'

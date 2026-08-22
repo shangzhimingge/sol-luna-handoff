@@ -1,4 +1,4 @@
 interface:
   display_name: "Sol → Luna Handoff"
-  short_description: "Route project artifact work through Sol, Luna, and Sol."
-  default_prompt: "Use $sol-luna-handoff to complete this task with Sol planning, Luna execution, and Sol verification."
+  short_description: "Use adaptive routing for the lowest-cost suitable tier."
+  default_prompt: "Use $sol-luna-handoff to select the lowest-cost suitable tier and complete this task with its adaptive route."

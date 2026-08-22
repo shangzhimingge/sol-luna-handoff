@@ -5,51 +5,70 @@ description: Use when handling any task that creates, modifies, fixes, refactors
 
 # Sol-Luna Handoff
 
-Route demanding work through Sol planning, Luna execution, and Sol verification. Advance automatically after each successful stage; do not pause for routine confirmation.
+Select the least costly route that satisfies the task's scope and risk, then advance automatically without pausing for routine confirmation.
 
 ## Preflight
 
-1. Check whether the `sol_planner` and `luna_executor` custom agents are selectable.
-2. If either is absent, run `scripts/install-agents.ps1` from this skill directory. Note that discovery of newly installed custom agents may require a fresh task, then continue with the fallback dispatch contract below.
+1. Check whether `sol_planner`, `sol_compact_planner`, `luna_executor`, and `luna_fast_executor` are selectable.
+2. If any are absent, run `scripts/install-agents.ps1` from this Skill directory. Newly installed agents may require a fresh task to become selectable; until then, use the fallback contracts below.
 3. Preserve the parent task's sandbox and approval settings.
 
-## Orchestration
+## Deterministic routing
 
-### 1. Plan with Sol
+Classify before delegation in the order below and state `Route: Tier N - <reason>` in one line.
 
-Dispatch `sol_planner`. Require a usable plan with this fixed contract:
+| Tier | Exact predicate | Route |
+| --- | --- | --- |
+| **Tier 3** | Select if **any** Tier 3 predicate below is true. | `sol_planner` high plan -> `luna_executor` medium execution -> `sol_planner` high verification. |
+| **Tier 1** | Select only if **all** are true: at most 2 expected changed files; at most 100 expected changed lines; exactly 1 subsystem; an explicit acceptance condition; and no Tier 3 predicate. Unknown file, line, subsystem, or acceptance bounds fail this Tier 1 test. | `luna_fast_executor` low direct execution and self-verification. No Sol planning or verification. |
+| **Tier 2** | Default to Tier 2 when Tier 3 is false and any Tier 1 condition is false. This includes bounded work of 3 to 8 files and bounded cross-component integration. | `sol_compact_planner` medium plan -> `luna_executor` medium execution; high Sol verification only on an evidence trigger. |
 
-- scope and explicit non-goals
-- ordered implementation steps
-- exact constraints and relevant repository instructions
-- affected files
-- verification commands
-- testable acceptance criteria
+Tier 3 predicates are: more than 8 expected changed files; security; authentication; authorization or permissions; cryptography; data migration; a destructive operation; deployment; a public API; concurrency; a dependency migration; architecture or an architectural decision; ambiguous requirements or scope that cannot be bounded before editing; or an explicit user request for full verification.
 
-If essential context is missing, require `NEEDS_CONTEXT` with the exact missing facts. Resolve those facts before execution; do not let the executor infer or broaden scope.
+Do not infer low risk from missing information. Resolve cheaply when possible; otherwise the ambiguity predicate selects Tier 3.
 
-### 2. Execute with Luna
+## Tier behavior
 
-After receiving a usable plan, automatically dispatch `luna_executor` with the request, repository context, and complete plan as a binding execution contract. Require Luna to make only in-scope changes, run every specified check, inspect the diff, and return:
+### Tier 1: direct Luna
 
-- changed files and a concise change summary
-- every verification command, exit status, and essential output
-- self-review results
-- remaining concerns, or `NONE`
+Dispatch `luna_fast_executor` with the task-local instructions, relevant paths, acceptance condition, and focused checks. Require it to implement, run the checks, inspect the diff, and self-verify. Skip Sol.
 
-Treat `NEEDS_CONTEXT` as a request for Sol to amend the contract. Do not pause for routine user confirmation between stages.
+### Tier 2: compact Sol, then Luna
 
-### 3. Verify with Sol
+Dispatch `sol_compact_planner`. Its plan must fit within **500 output tokens** and contain only scope and non-goals, ordered steps, affected files, checks, and acceptance criteria. Then dispatch `luna_executor` with that plan as a binding contract.
 
-Automatically send the plan, acceptance criteria, Luna report, diff summary, and fresh check evidence to `sol_planner` in verification mode. Require Sol to compare the evidence against every acceptance criterion and return exactly one of:
+Invoke `sol_planner` with high reasoning for verification if and only if at least one evidence trigger occurs:
 
-- `VERIFIED`
-- a bounded numbered findings list, with the failed criterion, evidence, and required correction for each finding
+- a fresh required check fails;
+- discovered scope expands beyond the plan;
+- Luna reports a remaining concern;
+- acceptance evidence is incomplete; or
+- the resulting diff diverges from the plan.
 
-On findings, send the list back to the same Luna executor. Require focused corrections, rerun all affected checks, refresh the implementation report, and return it to Sol. Repeat until Sol returns `VERIFIED`.
+With no trigger, Luna's fresh checks, diff inspection, and self-review complete the route.
 
-Claim completion only after fresh verification evidence supports every acceptance criterion. Report changed files, checks, and any remaining concerns concisely.
+### Tier 3: full Sol-Luna-Sol
 
-## Fallback Dispatch Contract
+Dispatch `sol_planner` with high reasoning for a plan containing scope and non-goals, ordered steps, constraints, affected files, verification commands, and acceptance criteria. Dispatch `luna_executor` with the plan as a binding contract. Then send the plan, acceptance criteria, Luna report, diff summary, and fresh evidence to `sol_planner` in verification mode.
 
-When named custom-agent selection is unavailable, dispatch a fresh planning/verifying agent explicitly using `gpt-5.6-sol` with `high` reasoning and the `sol_planner` contract. Dispatch a fresh executor explicitly using `gpt-5.6-luna` with `medium` reasoning and the `luna_executor` contract. Keep the same executor for correction rounds and preserve the automatic Sol-to-Luna-to-Sol sequence.
+The verifier returns `VERIFIED` or a bounded numbered findings list naming the failed criterion, evidence, and required correction.
+
+## Shared controls
+
+- Cap every executor implementation report at **300 output tokens**, excluding command output stored in files. The report contains changed files, concise summary, commands and exit status, self-review, and remaining concerns or `NONE`.
+- Prefer task briefs, plans, and raw command output in files. Pass only task-local instructions, relevant paths, acceptance criteria, and fresh evidence between agents.
+- If scope or risk crosses a higher-tier predicate, stop and upgrade before further edits. Never downgrade after editing starts.
+- Send verifier findings to the same Luna executor. After 2 correction rounds under one plan, return to the applicable Sol planner for replanning before any further correction; reset the counter for the new plan.
+- `NEEDS_CONTEXT` must name the exact missing facts. Resolve them before execution rather than letting Luna infer or broaden scope.
+- Claim completion only from fresh evidence satisfying every acceptance criterion.
+
+## Fallback dispatch contracts
+
+When a named custom agent is unavailable, dispatch a fresh agent with the matching configuration and contract:
+
+- `sol_planner`: `gpt-5.6-sol`, high reasoning, read-only; full planning or verification contract.
+- `sol_compact_planner`: `gpt-5.6-sol`, medium reasoning, read-only; the 500-token compact-plan contract.
+- `luna_executor`: `gpt-5.6-luna`, medium reasoning, workspace-write; binding-plan execution contract.
+- `luna_fast_executor`: `gpt-5.6-luna`, low reasoning, workspace-write; direct execution and self-verification contract.
+
+Reuse the same Luna executor for correction rounds and preserve the selected tier's verification rules.

@@ -13,7 +13,20 @@ $codexHome = if ($env:CODEX_HOME) {
 $agentsDirectory = [System.IO.Path]::GetFullPath((Join-Path $codexHome 'agents'))
 $globalAgentsPath = [System.IO.Path]::GetFullPath((Join-Path $codexHome 'AGENTS.md'))
 $sourceDirectory = Join-Path $skillDirectory 'assets'
-$agentFiles = @('sol-planner.toml', 'luna-executor.toml')
+$agentFiles = @(
+    'sol-planner.toml',
+    'sol-compact-planner.toml',
+    'luna-executor.toml',
+    'luna-fast-executor.toml'
+)
+# v1.0 shipped this built-in definition. Accept only its exact UTF-8 bytes,
+# including the Git-standard LF form and the Windows CRLF checkout form.
+$knownLegacyAgentHashes = @{
+    'luna-executor.toml' = @(
+        '292F88AA10D75147F3287AB54E73F0C4C2CE4BF98211F1A8944C789DDF7A7D8F',
+        '5BC8230908773356A53BD51F148F8DE116FD8A0283636215ABEA046BB62E2EFA'
+    )
+}
 $managedBlockPath = [System.IO.Path]::GetFullPath((Join-Path $sourceDirectory 'global-agents.md'))
 $startMarker = '<!-- BEGIN SOL-LUNA-HANDOFF MANAGED BLOCK -->'
 $endMarker = '<!-- END SOL-LUNA-HANDOFF MANAGED BLOCK -->'
@@ -42,6 +55,49 @@ function Test-ByteArrayEqual {
     return $true
 }
 
+function Get-Sha256Hex {
+    param(
+        [Parameter(Mandatory)]
+        [byte[]]$Bytes
+    )
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($Bytes))).Replace('-', '')
+    } finally {
+        $sha256.Dispose()
+    }
+}
+
+function Write-BytesAtomically {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [byte[]]$Bytes
+    )
+
+    $directory = [System.IO.Path]::GetDirectoryName($Path)
+    $temporaryPath = Join-Path $directory ('.' + [System.IO.Path]::GetFileName($Path) + '.' + [guid]::NewGuid().ToString('N') + '.tmp')
+    $backupPath = Join-Path $directory ('.' + [System.IO.Path]::GetFileName($Path) + '.' + [guid]::NewGuid().ToString('N') + '.bak')
+    try {
+        [System.IO.File]::WriteAllBytes($temporaryPath, $Bytes)
+        if ([System.IO.File]::Exists($Path)) {
+            [System.IO.File]::Replace($temporaryPath, $Path, $backupPath)
+        } else {
+            [System.IO.File]::Move($temporaryPath, $Path)
+        }
+    } finally {
+        if ([System.IO.File]::Exists($temporaryPath)) {
+            [System.IO.File]::Delete($temporaryPath)
+        }
+        if ([System.IO.File]::Exists($backupPath)) {
+            [System.IO.File]::Delete($backupPath)
+        }
+    }
+}
+
 # Preflight every custom-agent destination before making any filesystem changes.
 $agentInstallPlans = foreach ($fileName in $agentFiles) {
     $sourcePath = [System.IO.Path]::GetFullPath((Join-Path $sourceDirectory $fileName))
@@ -52,7 +108,13 @@ $agentInstallPlans = foreach ($fileName in $agentFiles) {
     if (-not $needsWrite) {
         $destinationBytes = [System.IO.File]::ReadAllBytes($destinationPath)
         if (-not (Test-ByteArrayEqual -Left $sourceBytes -Right $destinationBytes)) {
-            throw "Custom-agent collision: destination exists with different content: $destinationPath"
+            $destinationHash = Get-Sha256Hex -Bytes $destinationBytes
+            $knownHashes = @($knownLegacyAgentHashes[$fileName])
+            if ($knownHashes -contains $destinationHash) {
+                $needsWrite = $true
+            } else {
+                throw "Custom-agent collision: destination exists with different content: $destinationPath"
+            }
         }
     }
 
@@ -124,7 +186,7 @@ if ($missingAgentFiles.Count -gt 0 -and
 foreach ($plan in $agentInstallPlans) {
     if ($plan.NeedsWrite -and
         $PSCmdlet.ShouldProcess($plan.DestinationPath, "Install custom agent from $($plan.SourcePath)")) {
-        [System.IO.File]::WriteAllBytes($plan.DestinationPath, $plan.SourceBytes)
+        Write-BytesAtomically -Path $plan.DestinationPath -Bytes $plan.SourceBytes
     }
 
     Write-Output $plan.DestinationPath
