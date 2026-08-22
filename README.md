@@ -1,20 +1,20 @@
-# Sol → Luna Handoff
+# Sol → Luna 任务交接
 
-`sol-luna-handoff` routes project-artifact work through a three-stage workflow:
+`sol-luna-handoff` 通过三个阶段处理软件及其他项目制品相关工作：
 
-1. **Sol plans** the work and defines scope, constraints, checks, and acceptance criteria.
-2. **Luna executes** the approved plan and reports changes and verification evidence.
-3. **Sol verifies** the result against every acceptance criterion, returning focused corrections when needed.
+1. **Sol 规划**：明确工作范围、约束条件、检查项和验收标准。
+2. **Luna 执行**：严格按照已批准的计划实施，并报告变更内容与验证证据。
+3. **Sol 验证**：逐项对照验收标准检查结果；如有偏差，给出聚焦且可执行的修正意见。
 
-Current release: **v1.0.0**.
+当前版本：**v1.0.0**。
 
-## Automatic triggering
+## 自动触发
 
-The included installer adds a marker-delimited managed block to the global Codex `AGENTS.md`. That rule loads `$sol-luna-handoff` for tasks that create, modify, fix, refactor, review, test, configure, or document software or other project artifacts.
+随附的安装脚本会在全局 Codex `AGENTS.md` 中写入一个由起止标记界定、可受控维护的规则块。对于创建、修改、修复、重构、审查、测试或配置软件或其他项目制品，或为其编写文档的任务，该规则会加载 `$sol-luna-handoff`。
 
-The global rule excludes general Q&A, translation, and prose-only work that does not modify a project artifact.
+不涉及项目制品修改的一般问答、翻译和纯文本写作不在该全局规则的触发范围内。
 
-## Install on Windows with PowerShell
+## 在 Windows 上使用 PowerShell 安装
 
 ```powershell
 git clone https://github.com/shangzhimingge/sol-luna-handoff.git
@@ -32,19 +32,19 @@ Copy-Item -LiteralPath ".\sol-luna-handoff\skill\sol-luna-handoff" -Destination 
 & (Join-Path $SkillTarget "scripts\install-agents.ps1")
 ```
 
-Before writing anything, the installer validates the global managed-block state and checks both custom-agent destinations. A destination containing the same bytes as the bundled definition is left untouched. If either destination contains different content, installation stops before creating, copying, or updating any files and reports the colliding path.
+写入任何内容之前，安装脚本会先验证全局受控规则块的状态，并检查两个自定义代理的目标文件。若目标文件与随附定义逐字节相同，脚本会原样保留，不重复写入。若任一目标文件内容不同，安装会在创建、复制或更新任何文件之前停止，并报告发生冲突的路径。重复运行 `install-agents.ps1` 时，与随附定义相同的代理文件以及内容未变化的受控规则块都不会被重复写入。
 
-Start a fresh Codex task if the newly installed `sol_planner` and `luna_executor` agents are not immediately discoverable.
+如果新安装的 `sol_planner` 和 `luna_executor` 代理没有立即出现在可用列表中，请新建一个 Codex 任务以刷新发现状态。
 
-## Manual invocation
+## 手动调用
 
-Mention the skill directly in a task:
+在任务中直接提及该 Skill：
 
 ```text
 Use $sol-luna-handoff to implement this change.
 ```
 
-## Repository layout
+## 仓库结构
 
 ```text
 .
@@ -62,9 +62,11 @@ Use $sol-luna-handoff to implement this change.
         └── tests/install-agents.tests.ps1
 ```
 
-## Uninstall
+## 卸载
 
-The following removes only the managed global rule block, the two installed custom-agent files, and the installed skill directory. Other global `AGENTS.md` content is preserved.
+以下脚本只会移除全局 `AGENTS.md` 中由本项目管理的规则块、两个已安装且仍与随附定义一致的自定义代理文件，以及已安装的 Skill 目录。全局 `AGENTS.md` 中的其他内容会保留。
+
+对于自定义代理文件，脚本会先比较 SHA-256 哈希：只有内容仍与 Skill 内随附定义一致时才会删除；若内容已经变化，脚本会保留该文件并发出警告，从而避免删除用户修改过的配置。如果随附的对照文件缺失，已安装文件同样会保留。
 
 ```powershell
 $CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
@@ -115,6 +117,6 @@ foreach ($Pair in $AgentPairs) {
 Remove-Item -LiteralPath (Join-Path $CodexHome "skills\sol-luna-handoff") -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
-## License
+## 许可证
 
 MIT
