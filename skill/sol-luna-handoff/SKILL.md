@@ -33,7 +33,7 @@ Do not infer low risk from missing information. Resolve it with the conditional 
 
 ### State 2 - decide and run Scout
 
-Apply the Conditional Scout triggers below. When Scout is required, dispatch `luna_scout` and wait for its compressed evidence. Otherwise record that Scout was skipped. Do not emit the final route line before Scout has completed or been skipped.
+Tier 1 always records `Scout: no` and skips Scout without evaluating the Conditional Scout triggers, even when supplied diagnostics exceed 500 lines or another discovery trigger appears applicable. For Tier 2 and Tier 3 only, apply the Conditional Scout triggers below. When Scout is required, dispatch `luna_scout` and wait for its compressed evidence. Otherwise record that Scout was skipped. Do not emit the final route line before Scout has completed or been skipped.
 
 ### State 3 - decide Planner from Scout evidence
 
@@ -51,7 +51,9 @@ Emit exactly one final route line immediately before Planner or Executor delegat
 
 After emitting the line, delegate the selected Planner when it is `compact` or `full`, then delegate the selected Executor. Treat the emitted line as the unique final routing decision for that routing pass; only an upgrade starts a new pass.
 
-## Conditional Scout
+## Conditional Scout for Tier 2 and Tier 3
+
+These triggers apply only to Tier 2 and Tier 3. Tier 1 remains Scout-free.
 
 Use `luna_scout` when any one of these discovery conditions is true:
 

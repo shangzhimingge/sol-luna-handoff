@@ -382,6 +382,9 @@ function Test-AdaptiveRoutingContracts {
     Assert-True ($tierState -ge 0 -and $tierState -lt $scoutState -and $scoutState -lt $plannerState -and $plannerState -lt $executorState -and $executorState -lt $routeState) 'routing must complete Tier, Scout, Planner, Executor, then final route in order'
     Assert-True ($skill.Contains('Do not emit the final route line before Scout has completed or been skipped')) 'routing must not claim a final decision before Scout'
     Assert-True ($skill.Contains('Emit exactly one final route line immediately before Planner or Executor delegation')) 'routing must emit one final route before implementation delegation'
+    Assert-True ($skill.Contains('Tier 1 always records `Scout: no` and skips Scout without evaluating the Conditional Scout triggers, even when supplied diagnostics exceed 500 lines or another discovery trigger appears applicable.')) 'Tier 1 must remain Scout-free even when a discovery trigger superficially matches'
+    Assert-True ($skill.Contains('## Conditional Scout for Tier 2 and Tier 3')) 'Conditional Scout heading must limit the mechanism to Tier 2 and Tier 3'
+    Assert-True ($skill.Contains('These triggers apply only to Tier 2 and Tier 3. Tier 1 remains Scout-free.')) 'Conditional Scout body must exclude Tier 1'
     foreach ($risk in @('security', 'authentication', 'authorization', 'cryptography', 'data migration', 'destructive operation', 'deployment', 'public API', 'concurrency', 'dependency migration', 'architecture', 'ambiguous requirements')) {
         Assert-True ($skill.Contains($risk)) "Tier 3 must include the $risk predicate"
     }
