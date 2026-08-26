@@ -51,7 +51,7 @@ Prompt:
 Use the currently installed $sol-luna-handoff to classify this task without editing files: change four known files in one bounded subsystem to add a clearly specified business rule, with exact acceptance checks and no high-risk predicate. Report the selected route and every model/agent stage.
 ```
 
-Expected RED: v1.1 选择 compact Sol → Luna，缺少 Terra 执行通道，也不会说明可跳过 Sol。
+Expected RED: v1.1 的 Tier 2 固定选择 compact Sol planning → Luna，缺少 Terra 执行通道，也不支持跳过 compact Sol planning；无 evidence trigger 时可以跳过后续 high Sol verification。
 
 - [ ] **Step 3: 用新鲜子代理运行日志发现场景**
 
@@ -81,7 +81,7 @@ Run:
 Get-ChildItem 'work\sol-luna-balanced-v1.2\baseline-*.md' | Select-Object Name,Length
 ```
 
-Expected: 三个非空报告明确记录 Terra/Scout/可选 Sol 缺口。
+Expected: 三个非空报告明确记录 Terra/Scout 缺口，并精确区分 v1.1 的 Sol 阶段：Tier 2 不支持跳过 compact Sol planning；无 evidence trigger 时可跳过 high Sol verification。
 
 ---
 
