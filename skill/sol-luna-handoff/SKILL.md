@@ -15,9 +15,11 @@ Select the least costly route that satisfies the task's scope and risk, then adv
 
 ## Deterministic routing
 
-Before delegation, classify in this exact order: Tier 3, Tier 1, then Tier 2. State the complete decision in one line:
+Follow this state machine in order. Scout is the only delegation allowed before the final route is emitted.
 
-`Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: luna|terra`
+### State 1 - classify Tier
+
+Classify in this exact order: Tier 3, Tier 1, then Tier 2.
 
 | Tier | Exact predicate |
 | --- | --- |
@@ -27,7 +29,27 @@ Before delegation, classify in this exact order: Tier 3, Tier 1, then Tier 2. St
 
 Tier 3 predicates are: more than 8 expected changed files; security; authentication; authorization or permissions; cryptography; data migration; a destructive operation; deployment; a public API; concurrency; a dependency migration; architecture or an architectural decision; ambiguous requirements or scope that cannot be bounded before editing; or an explicit user request for full verification.
 
-Do not infer low risk from missing information. Resolve it with the conditional Scout when applicable; otherwise the ambiguity predicate selects Tier 3. After classification, decide Scout, Planner, and Executor using the rules below.
+Do not infer low risk from missing information. Resolve it with the conditional Scout when applicable; otherwise the ambiguity predicate selects Tier 3.
+
+### State 2 - decide and run Scout
+
+Apply the Conditional Scout triggers below. When Scout is required, dispatch `luna_scout` and wait for its compressed evidence. Otherwise record that Scout was skipped. Do not emit the final route line before Scout has completed or been skipped.
+
+### State 3 - decide Planner from Scout evidence
+
+Use the task brief plus the completed Scout report, when present. Tier 1 selects `none`. Tier 2 selects `compact` only when a planning trigger below applies and otherwise selects `none`. Tier 3 always selects `full`.
+
+### State 4 - decide Executor
+
+Tier 1 selects `luna`. Tier 2 applies the explicit Luna/Terra boundary below. Tier 3 always selects `terra`.
+
+### State 5 - emit the final route
+
+Emit exactly one final route line immediately before Planner or Executor delegation:
+
+`Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: luna|terra`
+
+After emitting the line, delegate the selected Planner when it is `compact` or `full`, then delegate the selected Executor. Treat the emitted line as the unique final routing decision for that routing pass; only an upgrade starts a new pass.
 
 ## Conditional Scout
 
@@ -83,7 +105,10 @@ The verifier returns `VERIFIED` or a bounded numbered findings list naming the f
 - Exchange Scout, plan, and execution evidence through task-local files. Pass only relevant paths and compressed summaries between agents.
 - Sol reads compressed evidence and necessary files; it does not perform broad repository traversal, raw-log screening, routine coding, or ordinary test-failure repair loops.
 - If scope or risk crosses a higher-tier predicate, stop and upgrade before further edits. Never downgrade after editing starts.
-- Send ordinary implementation corrections to the same executor. After 2 correction rounds under one plan, return to the applicable Sol planner for replanning before any further correction, then reset the correction count.
+- Send ordinary implementation corrections to the same executor and count them under one task brief or plan. After 2 correction rounds under one task brief or plan, replan before any further correction and reset the count only after the new plan is accepted:
+  - for Tier 2 work with `Planner: none`, invoke `sol_compact_planner` before any further correction and use its output as the new binding plan;
+  - for work already governed by a compact or full plan, return to the applicable Sol planner;
+  - for Tier 1, return `UPGRADE_NEEDED`, reclassify as at least Tier 2, and invoke `sol_compact_planner` before any further correction. Never continue repeated Tier 1 corrections on the direct brief.
 - `NEEDS_CONTEXT` names the exact missing facts. `UPGRADE_NEEDED` is returned before further editing when the current route is insufficient.
 - Claim completion only from fresh evidence satisfying every acceptance criterion.
 

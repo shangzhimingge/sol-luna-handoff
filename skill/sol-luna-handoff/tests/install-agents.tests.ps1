@@ -366,18 +366,52 @@ function Test-AdaptiveRoutingContracts {
     Assert-True ($skill.Contains('at most 100 expected changed lines')) 'Tier 1 must cap changed lines at 100'
     Assert-True ($skill.Contains('exactly 1 subsystem')) 'Tier 1 must require one subsystem'
     Assert-True ($skill.Contains('Default to Tier 2')) 'bounded non-Tier-1 work must deterministically default to Tier 2'
+    $tier3Index = $skill.IndexOf('Tier 3, Tier 1, then Tier 2')
+    Assert-True ($tier3Index -ge 0) 'routing must state the Tier 3 then Tier 1 then Tier 2 classification order'
+    $tier1Index = $skill.IndexOf('Tier 1', $tier3Index + 'Tier 3'.Length)
+    $tier2Index = $skill.IndexOf('Tier 2', $tier1Index + 'Tier 1'.Length)
+    Assert-True ($tier3Index -lt $tier1Index -and $tier1Index -lt $tier2Index) 'routing order must be Tier 3 then Tier 1 then Tier 2'
     Assert-True ($skill.Contains('Scout: yes|no')) 'route line must expose the Scout decision'
     Assert-True ($skill.Contains('Planner: none|compact|full')) 'route line must expose the planner decision'
     Assert-True ($skill.Contains('Executor: luna|terra')) 'route line must expose the executor decision'
+    $tierState = $skill.IndexOf('State 1 - classify Tier')
+    $scoutState = $skill.IndexOf('State 2 - decide and run Scout')
+    $plannerState = $skill.IndexOf('State 3 - decide Planner from Scout evidence')
+    $executorState = $skill.IndexOf('State 4 - decide Executor')
+    $routeState = $skill.IndexOf('State 5 - emit the final route')
+    Assert-True ($tierState -ge 0 -and $tierState -lt $scoutState -and $scoutState -lt $plannerState -and $plannerState -lt $executorState -and $executorState -lt $routeState) 'routing must complete Tier, Scout, Planner, Executor, then final route in order'
+    Assert-True ($skill.Contains('Do not emit the final route line before Scout has completed or been skipped')) 'routing must not claim a final decision before Scout'
+    Assert-True ($skill.Contains('Emit exactly one final route line immediately before Planner or Executor delegation')) 'routing must emit one final route before implementation delegation'
     foreach ($risk in @('security', 'authentication', 'authorization', 'cryptography', 'data migration', 'destructive operation', 'deployment', 'public API', 'concurrency', 'dependency migration', 'architecture', 'ambiguous requirements')) {
         Assert-True ($skill.Contains($risk)) "Tier 3 must include the $risk predicate"
     }
     Assert-True ($skill.Contains('more than 8 expected changed files')) 'Tier 3 must apply above eight files'
     Assert-True ($skill.Contains('Never downgrade after editing starts')) 'routing must prohibit post-edit downgrades'
     Assert-True ($skill.Contains('more than 500 lines')) 'Scout must have a deterministic diagnostic-size trigger'
+    Assert-True ($skill.Contains('relevant files or key symbols are not located')) 'Scout must trigger when files or symbols require cross-subsystem discovery'
+    Assert-True ($skill.Contains('modules crossed by the call chain are unclear')) 'Scout must trigger when the call chain modules are unclear'
+    Assert-True ($skill.Contains('planner would otherwise need a broad repository search')) 'Scout must trigger before broad planner repository search'
     Assert-True ($skill.Contains('400 output tokens')) 'compact plans must be capped at 400 output tokens'
+    Assert-True ($skill.Contains('after Scout, the root cause still requires a choice among multiple candidate approaches')) 'compact planning must trigger for unresolved candidate approaches'
+    Assert-True ($skill.Contains('change crosses multiple subsystems with ordering or dependency relationships')) 'compact planning must trigger for ordered cross-subsystem work'
+    Assert-True ($skill.Contains('compatibility constraints or a new cross-file invariant exist')) 'compact planning must trigger for compatibility or cross-file invariants'
+    Assert-True ($skill.Contains('acceptance criteria permit multiple implementations with material tradeoffs')) 'compact planning must trigger for material implementation tradeoffs'
+    Assert-True ($skill.Contains('implementation strategy is completely explicit')) 'Tier 2 Luna must require a completely explicit strategy'
+    foreach ($mechanicalKind in @('local', 'mechanical', 'repetitive', 'configuration', 'test', 'documentation editing')) {
+        Assert-True ($skill.Contains($mechanicalKind)) "Tier 2 Luna boundary must cover $mechanicalKind work"
+    }
+    Assert-True ($skill.Contains('Choose `luna_executor` only when the implementation strategy is completely explicit and the work is local, mechanical, repetitive, configuration, test, or documentation editing that requires no derivation of cross-file invariants and no handling of unknown test failures.')) 'Tier 2 Luna must satisfy the complete positive and negative mechanical boundary'
+    Assert-True ($skill.Contains('no derivation of cross-file invariants')) 'Tier 2 Luna must exclude cross-file invariant reasoning'
+    Assert-True ($skill.Contains('no handling of unknown test failures')) 'Tier 2 Luna must exclude unknown test failures'
+    Assert-True ($skill.Contains('Choose `terra_executor` for every other Tier 2 task')) 'Tier 2 must route non-mechanical work to Terra'
+    Assert-True ($skill.Contains('Use `terra_executor` as the main executor for every Tier 3 task')) 'Tier 3 must use Terra as the main executor'
+    Assert-True ($skill.Contains('mandatory high-reasoning verification')) 'Tier 3 must require final Sol verification'
     Assert-True ($skill.Contains('300 output tokens')) 'executor reports must be capped at 300 output tokens'
     Assert-True ($skill.Contains('After 2 correction rounds')) 'two correction rounds must trigger replanning'
+    Assert-True ($skill.Contains('under one task brief or plan')) 'correction counting must cover task briefs and plans'
+    Assert-True ($skill.Contains('Planner: none') -and $skill.Contains('invoke `sol_compact_planner` before any further correction')) 'Planner-none work must compact-plan after two corrections'
+    Assert-True ($skill.Contains('work already governed by a compact or full plan, return to the applicable Sol planner')) 'planned work must return to its applicable Sol planner after two corrections'
+    Assert-True ($skill.Contains('Tier 1') -and $skill.Contains('return `UPGRADE_NEEDED`, reclassify as at least Tier 2')) 'Tier 1 must upgrade after two corrections'
     Assert-True ($skill.Contains('at most one additional Luna worker')) 'agent fan-out must be bounded'
     Assert-True ($skill.Contains('terra_executor')) 'routing must provide the Terra lane'
     Assert-True ($skill.Contains('luna_scout')) 'routing must provide conditional discovery'
