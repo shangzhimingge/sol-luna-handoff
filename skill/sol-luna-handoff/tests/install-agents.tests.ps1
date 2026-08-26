@@ -366,20 +366,31 @@ function Test-AdaptiveRoutingContracts {
     Assert-True ($skill.Contains('at most 100 expected changed lines')) 'Tier 1 must cap changed lines at 100'
     Assert-True ($skill.Contains('exactly 1 subsystem')) 'Tier 1 must require one subsystem'
     Assert-True ($skill.Contains('Default to Tier 2')) 'bounded non-Tier-1 work must deterministically default to Tier 2'
+    Assert-True ($skill.Contains('Scout: yes|no')) 'route line must expose the Scout decision'
+    Assert-True ($skill.Contains('Planner: none|compact|full')) 'route line must expose the planner decision'
+    Assert-True ($skill.Contains('Executor: luna|terra')) 'route line must expose the executor decision'
     foreach ($risk in @('security', 'authentication', 'authorization', 'cryptography', 'data migration', 'destructive operation', 'deployment', 'public API', 'concurrency', 'dependency migration', 'architecture', 'ambiguous requirements')) {
         Assert-True ($skill.Contains($risk)) "Tier 3 must include the $risk predicate"
     }
     Assert-True ($skill.Contains('more than 8 expected changed files')) 'Tier 3 must apply above eight files'
     Assert-True ($skill.Contains('Never downgrade after editing starts')) 'routing must prohibit post-edit downgrades'
-    Assert-True ($skill.Contains('500 output tokens')) 'compact plans must be capped at 500 output tokens'
+    Assert-True ($skill.Contains('more than 500 lines')) 'Scout must have a deterministic diagnostic-size trigger'
+    Assert-True ($skill.Contains('400 output tokens')) 'compact plans must be capped at 400 output tokens'
     Assert-True ($skill.Contains('300 output tokens')) 'executor reports must be capped at 300 output tokens'
     Assert-True ($skill.Contains('After 2 correction rounds')) 'two correction rounds must trigger replanning'
+    Assert-True ($skill.Contains('at most one additional Luna worker')) 'agent fan-out must be bounded'
+    Assert-True ($skill.Contains('terra_executor')) 'routing must provide the Terra lane'
+    Assert-True ($skill.Contains('luna_scout')) 'routing must provide conditional discovery'
+    Assert-True ($skill.Contains('Skip Sol')) 'Tier 2 must allow planning-free bounded work'
 
     Assert-True ($globalRule.Contains('load and follow `$sol-luna-handoff`')) 'global rule must load the Skill'
     Assert-True ($globalRule.Contains('select the route')) 'global rule must delegate adaptive route selection'
     Assert-True (-not $globalRule.Contains('Route the work through Sol planning, Luna execution, and Sol verification')) 'global rule must not mandate the fixed pipeline'
-    Assert-True ($interfaceMetadata.Contains('adaptive')) 'interface metadata must describe adaptive routing'
-    Assert-True ($interfaceMetadata.Contains('lowest-cost suitable tier')) 'interface prompt must request the lowest-cost suitable tier'
+    Assert-True ($interfaceMetadata.Contains('Terra/Luna Handoff')) 'interface metadata must name both execution lanes'
+    Assert-True ($interfaceMetadata.Contains('balanced Scout, planning, and execution routing')) 'interface metadata must describe balanced routing'
+    Assert-True ($interfaceMetadata.Contains('conditional Luna discovery')) 'interface prompt must request conditional discovery'
+    Assert-True ($interfaceMetadata.Contains('minimum necessary Sol planning')) 'interface prompt must request minimum necessary planning'
+    Assert-True ($interfaceMetadata.Contains('suitable Terra or Luna executor')) 'interface prompt must request a suitable executor lane'
     Assert-True (-not $interfaceMetadata.Contains('Sol planning, Luna execution, and Sol verification')) 'interface metadata must not mandate the fixed pipeline'
 
     $expectedAgents = @(
