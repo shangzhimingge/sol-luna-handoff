@@ -9,6 +9,8 @@ $assetsDirectory = Join-Path $skillDirectory 'assets'
 $agentFiles = @(
     'sol-planner.toml',
     'sol-compact-planner.toml',
+    'luna-scout.toml',
+    'terra-executor.toml',
     'luna-executor.toml',
     'luna-fast-executor.toml'
 )
@@ -204,7 +206,72 @@ function Test-V100Upgrade {
             $globalContent = [System.IO.File]::ReadAllText($globalAgentsPath)
             Assert-True ($globalContent.Contains('# Keep this rule')) 'v1.0 upgrade must preserve unrelated global guidance'
             Assert-True ($globalContent.Contains('adaptive Tier 1, Tier 2, and Tier 3')) 'v1.0 upgrade must replace the managed rule'
-            Write-Output "PASS v1.0 $newlineStyle built-in agent upgrades to v1.1"
+            Write-Output "PASS v1.0 $newlineStyle built-in agent upgrades to v1.2"
+        } finally {
+            Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Get-V110CompactPlannerContent {
+    param(
+        [ValidateSet('LF', 'CRLF')]
+        [string]$NewlineStyle = 'LF'
+    )
+
+    $newline = if ($NewlineStyle -ceq 'CRLF') { "`r`n" } else { "`n" }
+    return (@(
+        'name = "sol_compact_planner"',
+        'description = "Produces a bounded plan for medium, low-risk project work."',
+        'model = "gpt-5.6-sol"',
+        'model_reasoning_effort = "medium"',
+        'sandbox_mode = "read-only"',
+        'developer_instructions = """',
+        'Inspect only task-local context and return a plan capped at 500 output tokens. Include only scope and non-goals, ordered steps, affected files, verification commands, and testable acceptance criteria. If essential context is missing, return NEEDS_CONTEXT with the exact missing facts. Do not implement, broaden scope, or perform final verification.',
+        '"""'
+    ) -join $newline) + $newline
+}
+
+function Test-V110Upgrade {
+    $expectedLegacyHashes = @{
+        'LF' = 'E8E9F21443434F523AA71DF343965ACDE93AD8ECEC3293F90F8386E4A5046A36'
+        'CRLF' = '2C7A9FE24E737DC1DD3D6E97CAC9745EB42CA0174587DEB083FC66C7C07DAA8A'
+    }
+
+    foreach ($newlineStyle in @('LF', 'CRLF')) {
+        $codexHome = New-TemporaryCodexHome
+        try {
+            $agentsDirectory = Join-Path $codexHome 'agents'
+            [System.IO.Directory]::CreateDirectory($agentsDirectory) | Out-Null
+            foreach ($fileName in @('sol-planner.toml', 'luna-executor.toml', 'luna-fast-executor.toml')) {
+                [System.IO.File]::WriteAllBytes(
+                    (Join-Path $agentsDirectory $fileName),
+                    [System.IO.File]::ReadAllBytes((Join-Path $assetsDirectory $fileName))
+                )
+            }
+
+            $legacyCompactBytes = $utf8NoBom.GetBytes((Get-V110CompactPlannerContent -NewlineStyle $newlineStyle))
+            $legacyCompactPath = Join-Path $agentsDirectory 'sol-compact-planner.toml'
+            [System.IO.File]::WriteAllBytes($legacyCompactPath, $legacyCompactBytes)
+            Assert-True (
+                (Get-FileHash -LiteralPath $legacyCompactPath -Algorithm SHA256).Hash -ceq
+                $expectedLegacyHashes[$newlineStyle]
+            ) "v1.1 $newlineStyle compact planner fixture must match the approved legacy hash"
+
+            $globalAgentsPath = Join-Path $codexHome 'AGENTS.md'
+            [System.IO.File]::WriteAllText($globalAgentsPath, "# Keep this v1.1 rule`n", $utf8NoBom)
+
+            Invoke-TestInstaller $codexHome
+
+            foreach ($fileName in $agentFiles) {
+                Assert-True (
+                    (Get-FileHash -LiteralPath (Join-Path $agentsDirectory $fileName) -Algorithm SHA256).Hash -ceq
+                    (Get-FileHash -LiteralPath (Join-Path $assetsDirectory $fileName) -Algorithm SHA256).Hash
+                ) "v1.1 $newlineStyle upgrade must install the canonical $fileName bytes"
+            }
+            $globalContent = [System.IO.File]::ReadAllText($globalAgentsPath)
+            Assert-True ($globalContent.Contains('# Keep this v1.1 rule')) 'v1.1 upgrade must preserve unrelated global guidance'
+            Write-Output "PASS v1.1 $newlineStyle built-in agents upgrade to v1.2"
         } finally {
             Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -318,20 +385,28 @@ function Test-AdaptiveRoutingContracts {
     $expectedAgents = @(
         @{ File = 'sol-planner.toml'; Name = 'sol_planner'; Model = 'gpt-5.6-sol'; Effort = 'high'; Sandbox = 'read-only' },
         @{ File = 'sol-compact-planner.toml'; Name = 'sol_compact_planner'; Model = 'gpt-5.6-sol'; Effort = 'medium'; Sandbox = 'read-only' },
+        @{ File = 'luna-scout.toml'; Name = 'luna_scout'; Model = 'gpt-5.6-luna'; Effort = 'low'; Sandbox = 'read-only' },
+        @{ File = 'terra-executor.toml'; Name = 'terra_executor'; Model = 'gpt-5.6-terra'; Effort = 'medium'; Sandbox = 'workspace-write' },
         @{ File = 'luna-executor.toml'; Name = 'luna_executor'; Model = 'gpt-5.6-luna'; Effort = 'medium'; Sandbox = 'workspace-write' },
         @{ File = 'luna-fast-executor.toml'; Name = 'luna_fast_executor'; Model = 'gpt-5.6-luna'; Effort = 'low'; Sandbox = 'workspace-write' }
     )
     foreach ($agent in $expectedAgents) {
         $content = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory $agent.File), $utf8Strict)
-        Assert-True ($content -match "(?m)^name = `"$([regex]::Escape($agent.Name))`"$") "$($agent.File) must have the expected name"
-        Assert-True ($content -match "(?m)^model = `"$([regex]::Escape($agent.Model))`"$") "$($agent.File) must have the expected model"
-        Assert-True ($content -match "(?m)^model_reasoning_effort = `"$([regex]::Escape($agent.Effort))`"$") "$($agent.File) must have the expected reasoning effort"
-        Assert-True ($content -match "(?m)^sandbox_mode = `"$([regex]::Escape($agent.Sandbox))`"$") "$($agent.File) must have the expected sandbox"
+        Assert-True ($content -match "(?m)^name = `"$([regex]::Escape($agent.Name))`"\r?$") "$($agent.File) must have the expected name"
+        Assert-True ($content -match "(?m)^model = `"$([regex]::Escape($agent.Model))`"\r?$") "$($agent.File) must have the expected model"
+        Assert-True ($content -match "(?m)^model_reasoning_effort = `"$([regex]::Escape($agent.Effort))`"\r?$") "$($agent.File) must have the expected reasoning effort"
+        Assert-True ($content -match "(?m)^sandbox_mode = `"$([regex]::Escape($agent.Sandbox))`"\r?$") "$($agent.File) must have the expected sandbox"
     }
     $compactPlanner = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'sol-compact-planner.toml'), $utf8Strict)
+    $scout = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'luna-scout.toml'), $utf8Strict)
+    $terraExecutor = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'terra-executor.toml'), $utf8Strict)
     $executor = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'luna-executor.toml'), $utf8Strict)
     $fastExecutor = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'luna-fast-executor.toml'), $utf8Strict)
-    Assert-True ($compactPlanner.Contains('500 output tokens')) 'compact planner instructions must enforce the plan budget'
+    Assert-True ($compactPlanner.Contains('400 output tokens')) 'compact planner instructions must enforce the v1.2 plan budget'
+    Assert-True ($scout.Contains('250 output tokens')) 'Scout instructions must enforce the evidence budget'
+    Assert-True ($scout.Contains('Do not plan, edit, verify an implementation')) 'Scout instructions must prohibit implementation work'
+    Assert-True ($terraExecutor.Contains('300 output tokens')) 'Terra instructions must enforce the implementation report budget'
+    Assert-True ($terraExecutor.Contains('ordinary implementation details and test failures')) 'Terra instructions must permit ordinary error correction'
     Assert-True ($executor.Contains('300 output tokens')) 'standard executor instructions must enforce the report budget'
     Assert-True ($fastExecutor.Contains('300 output tokens')) 'fast executor instructions must enforce the report budget'
     Assert-True ($fastExecutor.Contains('self-verif')) 'fast executor instructions must require self-verification'
@@ -351,6 +426,7 @@ Test-DifferingAgentCollisions
 Test-FreshInstall
 Test-AdaptiveRoutingContracts
 Test-V100Upgrade
+Test-V110Upgrade
 Test-MalformedGlobalMarkers
 Test-IdenticalFilesAreIdempotent
 Test-WhatIfDoesNotMutate

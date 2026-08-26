@@ -16,12 +16,18 @@ $sourceDirectory = Join-Path $skillDirectory 'assets'
 $agentFiles = @(
     'sol-planner.toml',
     'sol-compact-planner.toml',
+    'luna-scout.toml',
+    'terra-executor.toml',
     'luna-executor.toml',
     'luna-fast-executor.toml'
 )
-# v1.0 shipped this built-in definition. Accept only its exact UTF-8 bytes,
-# including the Git-standard LF form and the Windows CRLF checkout form.
+# Earlier releases shipped these built-in definitions. Accept only their exact
+# UTF-8 bytes, including the Git-standard LF and Windows CRLF checkout forms.
 $knownLegacyAgentHashes = @{
+    'sol-compact-planner.toml' = @(
+        'E8E9F21443434F523AA71DF343965ACDE93AD8ECEC3293F90F8386E4A5046A36',
+        '2C7A9FE24E737DC1DD3D6E97CAC9745EB42CA0174587DEB083FC66C7C07DAA8A'
+    )
     'luna-executor.toml' = @(
         '292F88AA10D75147F3287AB54E73F0C4C2CE4BF98211F1A8944C789DDF7A7D8F',
         '5BC8230908773356A53BD51F148F8DE116FD8A0283636215ABEA046BB62E2EFA'
