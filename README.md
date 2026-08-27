@@ -126,7 +126,7 @@ Pop-Location
 安装器只接受以下内置旧版代理的精确 UTF-8 字节定义作为自动迁移例外：
 
 - v1.0 内置 `luna-executor.toml` 的 LF 或 CRLF 版本；
-- v1.1 内置 `sol-compact-planner.toml` 的 LF 或 CRLF 版本。
+- v1.1 内置 `sol-planner.toml`、`sol-compact-planner.toml`、`luna-executor.toml` 和 `luna-fast-executor.toml` 的 LF 或 CRLF 版本。
 
 匹配时，安装器会升级相应定义并补齐新代理。其他代理差异、用户自定义内容或未知版本会在任何写入前报告冲突；此时应从备份恢复，或人工核对并合并配置。
 

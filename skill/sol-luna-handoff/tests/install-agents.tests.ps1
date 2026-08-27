@@ -232,10 +232,64 @@ function Get-V110CompactPlannerContent {
     ) -join $newline) + $newline
 }
 
+function Get-V110BundledAgentContent {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('sol-planner.toml', 'luna-executor.toml', 'luna-fast-executor.toml')]
+        [string]$FileName,
+
+        [ValidateSet('LF', 'CRLF')]
+        [string]$NewlineStyle = 'LF'
+    )
+
+    $utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
+    $content = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory $FileName), $utf8Strict)
+    $lfContent = $content.Replace("`r`n", "`n").Replace("`r", "`n")
+    if ($NewlineStyle -ceq 'CRLF') {
+        return $lfContent.Replace("`n", "`r`n")
+    }
+    return $lfContent
+}
+
+function Install-V110AgentFixtures {
+    param(
+        [Parameter(Mandatory)]
+        [string]$AgentsDirectory,
+
+        [ValidateSet('LF', 'CRLF')]
+        [string]$NewlineStyle = 'LF'
+    )
+
+    foreach ($fileName in @('sol-planner.toml', 'luna-executor.toml', 'luna-fast-executor.toml')) {
+        [System.IO.File]::WriteAllBytes(
+            (Join-Path $AgentsDirectory $fileName),
+            $utf8NoBom.GetBytes((Get-V110BundledAgentContent -FileName $fileName -NewlineStyle $NewlineStyle))
+        )
+    }
+    [System.IO.File]::WriteAllBytes(
+        (Join-Path $AgentsDirectory 'sol-compact-planner.toml'),
+        $utf8NoBom.GetBytes((Get-V110CompactPlannerContent -NewlineStyle $NewlineStyle))
+    )
+}
+
 function Test-V110Upgrade {
     $expectedLegacyHashes = @{
-        'LF' = 'E8E9F21443434F523AA71DF343965ACDE93AD8ECEC3293F90F8386E4A5046A36'
-        'CRLF' = '2C7A9FE24E737DC1DD3D6E97CAC9745EB42CA0174587DEB083FC66C7C07DAA8A'
+        'sol-planner.toml' = @{
+            'LF' = '7B6FB8A14C22354125C08BC255F4203B7BF8EBF505209402FA8A7BBD91EBA431'
+            'CRLF' = '140A285E3485546848294A9DE46AA96E7B021B24AA8A83BC8E546854D9B93B4F'
+        }
+        'sol-compact-planner.toml' = @{
+            'LF' = 'E8E9F21443434F523AA71DF343965ACDE93AD8ECEC3293F90F8386E4A5046A36'
+            'CRLF' = '2C7A9FE24E737DC1DD3D6E97CAC9745EB42CA0174587DEB083FC66C7C07DAA8A'
+        }
+        'luna-executor.toml' = @{
+            'LF' = '91AA121E7248CA507FFB594D7768595E1E0C6267BD5435745DC2573DAB9957FA'
+            'CRLF' = '89864C97A3DC252F684CA46BC405E414D4811465517F5D721AABC9C8AAE2669D'
+        }
+        'luna-fast-executor.toml' = @{
+            'LF' = '5400B0F6F9EE8CAAD4678779A6FB89F99C59835669BF579DD0A70F1F05BF9393'
+            'CRLF' = '099C58C9F0AF4B6B2A0F923782E0953BB798FB8AA48ED29EDF7E2550EAA3F5A6'
+        }
     }
 
     foreach ($newlineStyle in @('LF', 'CRLF')) {
@@ -243,20 +297,13 @@ function Test-V110Upgrade {
         try {
             $agentsDirectory = Join-Path $codexHome 'agents'
             [System.IO.Directory]::CreateDirectory($agentsDirectory) | Out-Null
-            foreach ($fileName in @('sol-planner.toml', 'luna-executor.toml', 'luna-fast-executor.toml')) {
-                [System.IO.File]::WriteAllBytes(
-                    (Join-Path $agentsDirectory $fileName),
-                    [System.IO.File]::ReadAllBytes((Join-Path $assetsDirectory $fileName))
-                )
+            Install-V110AgentFixtures -AgentsDirectory $agentsDirectory -NewlineStyle $newlineStyle
+            foreach ($fileName in $expectedLegacyHashes.Keys) {
+                Assert-True (
+                    (Get-FileHash -LiteralPath (Join-Path $agentsDirectory $fileName) -Algorithm SHA256).Hash -ceq
+                    $expectedLegacyHashes[$fileName][$newlineStyle]
+                ) "v1.1 $newlineStyle $fileName fixture must match the approved legacy hash"
             }
-
-            $legacyCompactBytes = $utf8NoBom.GetBytes((Get-V110CompactPlannerContent -NewlineStyle $newlineStyle))
-            $legacyCompactPath = Join-Path $agentsDirectory 'sol-compact-planner.toml'
-            [System.IO.File]::WriteAllBytes($legacyCompactPath, $legacyCompactBytes)
-            Assert-True (
-                (Get-FileHash -LiteralPath $legacyCompactPath -Algorithm SHA256).Hash -ceq
-                $expectedLegacyHashes[$newlineStyle]
-            ) "v1.1 $newlineStyle compact planner fixture must match the approved legacy hash"
 
             $globalAgentsPath = Join-Path $codexHome 'AGENTS.md'
             [System.IO.File]::WriteAllText($globalAgentsPath, "# Keep this v1.1 rule`n", $utf8NoBom)
@@ -275,6 +322,37 @@ function Test-V110Upgrade {
         } finally {
             Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
         }
+    }
+}
+
+function Test-V110UpgradeWithLaterUnknownCollisionIsAtomic {
+    $codexHome = New-TemporaryCodexHome
+    try {
+        $agentsDirectory = Join-Path $codexHome 'agents'
+        [System.IO.Directory]::CreateDirectory($agentsDirectory) | Out-Null
+        Install-V110AgentFixtures -AgentsDirectory $agentsDirectory -NewlineStyle 'LF'
+        $unknownCollisionPath = Join-Path $agentsDirectory 'terra-executor.toml'
+        [System.IO.File]::WriteAllText($unknownCollisionPath, 'unknown custom Terra definition', $utf8NoBom)
+        $globalAgentsPath = Join-Path $codexHome 'AGENTS.md'
+        [System.IO.File]::WriteAllText($globalAgentsPath, "# Keep this v1.1 rule`n", $utf8NoBom)
+
+        $agentsBefore = Get-DirectoryState $agentsDirectory
+        $globalBefore = Get-FileState $globalAgentsPath
+        $caughtMessage = $null
+        try {
+            Invoke-TestInstaller $codexHome
+        } catch {
+            $caughtMessage = $_.Exception.Message
+        }
+
+        Assert-True ($null -ne $caughtMessage) 'a later unknown collision must abort a v1.1 migration'
+        Assert-True ($caughtMessage.Contains($unknownCollisionPath)) 'the later collision must name the unknown destination'
+        Assert-True ((Get-DirectoryState $agentsDirectory) -ceq $agentsBefore) 'known legacy files must remain byte-identical when a later collision aborts preflight'
+        Assert-True ((Get-FileState $globalAgentsPath) -ceq $globalBefore) 'AGENTS.md must remain unchanged when a later collision aborts preflight'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $agentsDirectory 'luna-scout.toml'))) 'preflight abort must not create a missing new agent'
+        Write-Output 'PASS v1.1 legacy migration plus later unknown collision aborts atomically'
+    } finally {
+        Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -475,6 +553,7 @@ Test-FreshInstall
 Test-AdaptiveRoutingContracts
 Test-V100Upgrade
 Test-V110Upgrade
+Test-V110UpgradeWithLaterUnknownCollisionIsAtomic
 Test-MalformedGlobalMarkers
 Test-IdenticalFilesAreIdempotent
 Test-WhatIfDoesNotMutate
