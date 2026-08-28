@@ -1,236 +1,261 @@
-# Sol–Terra/Luna 自适应任务交接
+# Sol → Terra/Luna Handoff
 
-`sol-luna-handoff` 面向会创建、修改、修复、重构、审查、测试、配置或记录项目制品的 Codex 任务。它按风险和范围选择最低成本且足以保证质量的路线，并自动完成发现、规划、执行与验证。
+> **Cost-aware adaptive multi-agent routing for Codex.**
+>
+> Sol plans and verifies high-risk work, Terra handles substantial implementation, and Luna performs fast discovery or explicit mechanical work.
 
-当前版本：**v1.2.0**。
+[简体中文](./README.zh-CN.md)
 
-## v1.2 的均衡路由
+![Version](https://img.shields.io/badge/version-v1.3.0-2563eb)
+![License](https://img.shields.io/badge/license-MIT-16a34a)
+![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
+![Codex](https://img.shields.io/badge/Codex-Agent%20Skill-111827)
 
-Skill 严格按 **Tier 3 → Tier 1 → Tier 2** 的顺序分类。仅 Scout 可以在最终路线确定前运行；Scout 完成或明确跳过后，Skill 会在首次 Planner 或 Executor 委派前输出唯一一行最终路线：
+## Install everything with one command
+
+```bash
+npx -y github:shangzhimingge/sol-luna-handoff
+```
+
+That single command installs or safely upgrades:
+
+```text
+~/.codex/skills/sol-luna-handoff/   Skill
+~/.codex/agents/*.toml              6 custom agents
+~/.codex/AGENTS.md                  managed automatic-activation rule
+```
+
+After setup, use Codex normally. Supported project-artifact tasks activate the Skill through the managed global rule; there is no first-use setup command.
+
+If Codex was already open and cached agent discovery, start a new Codex task or restart the app once.
+
+### Check or remove the installation
+
+```bash
+# Read-only health check
+npx -y github:shangzhimingge/sol-luna-handoff doctor
+
+# Safe uninstall
+npx -y github:shangzhimingge/sol-luna-handoff uninstall
+```
+
+To install a specific release instead of the current default branch:
+
+```bash
+npx -y github:shangzhimingge/sol-luna-handoff#v1.3.0
+```
+
+## What problem it solves
+
+A fixed high-reasoning workflow is wasteful for small changes and too weak for large risky changes. `sol-luna-handoff` classifies work by scope and risk, then selects the least costly route that remains strong enough to implement and verify it.
+
+```text
+Small + explicit
+    ↓
+Luna executes and self-verifies
+
+Medium + bounded
+    ↓
+Optional Luna Scout
+    ↓
+Optional compact Sol plan
+    ↓
+Luna or Terra executes
+    ↓
+Sol verifies only when evidence requires it
+
+Large / risky / ambiguous
+    ↓
+Optional Luna Scout
+    ↓
+Full Sol plan
+    ↓
+Terra implements
+    ↓
+Mandatory Sol verification
+```
+
+The workflow advances automatically after routing and does not pause for routine confirmation between stages.
+
+## Routing at a glance
+
+Classification order is deterministic: **Tier 3 → Tier 1 → Tier 2**.
+
+| Tier | Exact selection rule | Default route |
+| --- | --- | --- |
+| **Tier 1 — Fast** | ≤2 expected changed files, ≤100 expected changed lines, exactly one subsystem, explicit acceptance criteria, and no Tier 3 risk | Luna direct execution |
+| **Tier 2 — Balanced** | Tier 3 is false, but at least one Tier 1 condition is false | Conditional Scout → optional compact Sol → Luna or Terra → conditional Sol verification |
+| **Tier 3 — Full** | Large, architectural, destructive, security-sensitive, deployment-related, public-API, or unbounded work | Conditional Scout → Sol → Terra → Sol |
+
+Unknown bounds do not qualify a task for Tier 1. Unbounded uncertainty escalates instead of being treated as low risk.
+
+Immediately before planning or execution, the Skill emits one route line:
 
 ```text
 Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: luna|terra
 ```
 
-| 级别 | 精确条件 | 默认路线 |
-| --- | --- | --- |
-| **Tier 1：快速执行** | 同时满足：预计最多 2 个文件、最多 100 行、恰好 1 个子系统、验收条件明确，且没有 Tier 3 风险。任一边界未知都不进入 Tier 1。 | `Scout: no; Planner: none; Executor: luna`。由 `luna_fast_executor` 直接实施、自检并检查差异。 |
-| **Tier 2：均衡执行** | Tier 3 不成立，但至少一个 Tier 1 条件不成立；包括边界明确的 3～8 文件工作与跨组件集成。 | 按条件运行 `luna_scout`；规划触发器成立时用 `sol_compact_planner`，否则跳过 **compact Sol planning**；机械工作用 Luna，其余工作用 Terra；高推理 Sol 验证仅由新鲜证据触发。 |
-| **Tier 3：完整流程** | 预计超过 8 个文件，或涉及安全、认证、权限、密码学、数据迁移、破坏性操作、部署、公共 API、并发、依赖迁移、架构决策、无法界定的需求/范围，或用户明确要求完整验证。 | Scout 仅按条件运行；固定 `sol_planner` 完整规划 → `terra_executor` 主体执行 → `sol_planner` 高推理最终验证。 |
+## Six purpose-built agents
 
-Tier 2 的 `Planner: none` 只表示跳过 compact Sol planning。执行后若出现证据触发器，仍会调用高推理 `sol_planner` 验证。
-
-## 条件 Scout
-
-Tier 1 固定 `Scout: no`。Tier 2 和 Tier 3 仅在以下任一发现条件成立时调用只读 `luna_scout`：
-
-- 相关文件或关键符号尚未定位，且搜索必须跨越一个以上子系统；
-- 日志、跟踪或报错材料超过 500 行；
-- 调用链跨过哪些模块尚不清楚；
-- Planner 原本需要进行宽泛的仓库搜索。
-
-精确文件、符号、约束和验收条件均已知时不启用 Scout。Scout 只返回候选路径与符号、最短调用链、关键证据和剩余未知，并将原始搜索或日志输出写入任务本地文件。
-
-## Tier 2 的 Planner 与 Executor 选择
-
-Tier 2 仅在以下任一条件成立时运行 `sol_compact_planner`：
-
-- Scout 后仍需在多个候选根因或实现方案之间选择；
-- 修改跨多个子系统，且存在顺序或依赖关系；
-- 存在兼容性约束或新的跨文件不变量；
-- 验收条件允许多种实现，且取舍会实质影响结果。
-
-没有上述触发器时，协调者直接生成明确任务简报并记录 `Planner: none`。
-
-执行边界如下：
-
-- `luna_executor`：策略完全明确，且属于本地、机械、重复、配置、测试或文档编辑；无需推导跨文件不变量，也无需处理未知测试失败。
-- `terra_executor`：其余 Tier 2 工作，包括多文件业务逻辑、集成、重构和常规调试。
-
-Tier 2 仅在新鲜必需检查失败、范围超出任务简报/计划、执行器报告遗留问题、验收证据不完整或差异偏离任务简报/计划时追加高推理 Sol 验证。没有证据触发器时，主体执行器的新鲜检查、差异检查和自审即可完成路线。
-
-## 六个自定义代理
-
-| 代理 | 模型与权限 | 职责 | 输出预算 |
+| Agent | Model / reasoning | Access | Responsibility |
 | --- | --- | --- | --- |
-| `luna_scout` | Luna / low / read-only | 压缩跨仓库发现、长日志和调用链证据 | 最多 **250 output tokens** |
-| `sol_compact_planner` | Sol / medium / read-only | Tier 2 的范围、步骤、文件、检查与验收计划 | 最多 **400 output tokens** |
-| `sol_planner` | Sol / high / read-only | Tier 3 完整规划，以及证据触发或固定最终验证 | 有界规划或结论 |
-| `terra_executor` | Terra / medium / workspace-write | 多文件逻辑、集成、重构和常规调试 | 最多 **300 output tokens** |
-| `luna_executor` | Luna / medium / workspace-write | 明确、机械的任务简报或计划执行 | 最多 **300 output tokens** |
-| `luna_fast_executor` | Luna / low / workspace-write | Tier 1 直接执行与自验 | 最多 **300 output tokens** |
+| `luna_scout` | Luna / low | read-only | Repository discovery, long-log compression, call-chain evidence |
+| `sol_compact_planner` | Sol / medium | read-only | Bounded Tier 2 planning |
+| `sol_planner` | Sol / high | read-only | Full planning and high-reasoning verification |
+| `terra_executor` | Terra / medium | workspace-write | Multi-file logic, integration, refactoring, debugging |
+| `luna_executor` | Luna / medium | workspace-write | Explicit mechanical, config, test, and docs work |
+| `luna_fast_executor` | Luna / low | workspace-write | Tier 1 direct implementation and self-verification |
 
-原始命令输出写入任务本地文件，不计入执行报告预算。Sol 读取压缩证据与必要文件，不承担宽泛仓库遍历、原始日志筛查、常规编码或普通测试修复循环。
+Discovery and executor reports are bounded. Raw diagnostics stay in task-local files rather than being copied repeatedly between agents.
 
-## 防止代理与上下文扩散
+## Conditional discovery, planning, and verification
 
-- 默认每个任务只有一个主体执行器。
-- Tier 3 仅可为完全有界、可独立并行且能减少总上下文的机械叶子任务增加 **最多一个 Luna worker**；主体仍固定为 Terra。
-- Scout、计划和执行证据均通过任务本地文件交接，只传递相关路径与压缩摘要。
-- 同一任务简报或计划下的普通修正交回同一执行器；完成 2 轮修正后先重新规划，再继续编辑。
-- Tier 2 的 `Planner: none` 路线在第 2 轮修正后先调用 compact Sol；Tier 1 则升级到至少 Tier 2 后调用 compact Sol。
-- 范围或风险跨入更高级别时先停止编辑并升级，编辑开始后不降级。
+### Scout
 
-## 自动全局触发
+Tier 1 is always Scout-free. Tier 2 and Tier 3 use `luna_scout` only when broad discovery would consume expensive context, such as an unclear cross-module call chain or diagnostics longer than 500 lines.
 
-安装器会在全局 Codex `AGENTS.md` 中维护一个由起止标记界定的规则块。创建、修改、修复、重构、审查、测试、配置项目制品或为项目制品编写文档时，该规则会加载 `$sol-luna-handoff`，由 Skill 自动选路并继续执行。
+### Sol planning in Tier 2
 
-一般问答、翻译和不修改项目制品的纯文本写作不在全局触发范围内。
+Tier 2 skips Sol when the implementation brief is already explicit. Compact Sol planning is added for real tradeoffs, unresolved root causes, compatibility constraints, dependency ordering, or new cross-file invariants.
 
-## Windows PowerShell 安装
+### Luna vs Terra
+
+Luna receives local, explicit, repetitive, configuration, test, or documentation work. Terra receives multi-file business logic, integration, refactoring, ordinary debugging, and implementation that still requires broader reasoning.
+
+### Verification
+
+Tier 2 adds Sol verification only when fresh evidence shows value: a failed required check, scope expansion, incomplete acceptance evidence, a remaining executor concern, or a diff that diverges from the brief. Tier 3 always ends with Sol verification.
+
+## Installer behavior
+
+The v1.3 installer is a dependency-free Node.js CLI. It uses `CODEX_HOME` when set and otherwise targets `~/.codex`.
+
+### Safety properties
+
+- Preflights the Skill, all six agents, and global markers before the first mutation.
+- Keeps exact current files unchanged, including timestamps.
+- Migrates exact bundled v1.0, v1.1, and v1.2 Skill trees.
+- Migrates only recognized historical agent definitions.
+- Stops before writing when an installed Skill or agent contains unknown content.
+- Rejects malformed or duplicate global managed-block markers.
+- Stages the Skill directory and uses same-directory atomic file replacement.
+- Restores the current run's snapshots if a later installation step fails.
+- Preserves unrelated content in global `AGENTS.md`.
+- Requires no API key and uploads no repository content.
+
+The command changes Codex configuration under `CODEX_HOME`; it does not edit the project repository where the command is launched.
+
+### Custom Codex home
+
+PowerShell:
+
+```powershell
+$env:CODEX_HOME = "D:\CodexProfile"
+npx -y github:shangzhimingge/sol-luna-handoff
+```
+
+Bash / zsh:
+
+```bash
+CODEX_HOME="$HOME/codex-profile" \
+  npx -y github:shangzhimingge/sol-luna-handoff
+```
+
+## Manual PowerShell fallback
+
+<details>
+<summary>Show manual installation</summary>
 
 ```powershell
 git clone https://github.com/shangzhimingge/sol-luna-handoff.git
 
 $CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
-$SkillsDirectory = Join-Path $CodexHome "skills"
-$SkillTarget = Join-Path $SkillsDirectory "sol-luna-handoff"
+$SkillTarget = Join-Path $CodexHome "skills\sol-luna-handoff"
 
 if (Test-Path -LiteralPath $SkillTarget) {
-    throw "The skill is already installed at $SkillTarget. Use the upgrade procedure for an existing copy."
+    throw "The Skill target already exists: $SkillTarget"
 }
 
-New-Item -ItemType Directory -Path $SkillsDirectory -Force | Out-Null
+New-Item -ItemType Directory -Path (Split-Path -Parent $SkillTarget) -Force | Out-Null
 Copy-Item -LiteralPath ".\sol-luna-handoff\skill\sol-luna-handoff" -Destination $SkillTarget -Recurse
 & (Join-Path $SkillTarget "scripts\install-agents.ps1")
 ```
 
-写入前，安装器会先验证全局受控规则块，并预检六个代理的全部目标文件。目标与随附定义逐字节一致时原样保留。除下节列出的已知旧版字节定义外，任何未知差异都会让预检在创建、复制或更新文件前停止，因此不会形成部分安装状态。脚本支持 `-WhatIf`，重复执行保持幂等。
+The PowerShell setup script remains idempotent and supports `-WhatIf` for the agent and global-rule portion.
 
-新安装的 `sol_planner`、`sol_compact_planner`、`luna_scout`、`terra_executor`、`luna_executor` 和 `luna_fast_executor` 若尚未出现在可用代理列表中，新建一个 Codex 任务即可刷新发现状态。
+</details>
 
-## 从 v1.1 升级到 v1.2
+## Automatic activation
 
-在已克隆仓库的上级目录运行以下脚本。它会先更新仓库，再备份已安装的 v1.1 Skill，复制 v1.2 Skill，并运行六代理安装器。
+The installer maintains a marker-delimited block in global Codex `AGENTS.md`. It activates `$sol-luna-handoff` for tasks that create, modify, fix, refactor, review, test, configure, or document software and project artifacts.
 
-```powershell
-Push-Location ".\sol-luna-handoff"
-git pull
+General Q&A, translation, and prose-only work unrelated to project artifacts remain outside the automatic trigger.
 
-$CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
-$SkillTarget = Join-Path $CodexHome "skills\sol-luna-handoff"
-$BackupTarget = "$SkillTarget.v1.1-backup"
-
-if (Test-Path -LiteralPath $BackupTarget) {
-    throw "Backup already exists at $BackupTarget. Move or remove it before upgrading."
-}
-
-Copy-Item -LiteralPath $SkillTarget -Destination $BackupTarget -Recurse
-Remove-Item -LiteralPath $SkillTarget -Recurse -Force
-Copy-Item -LiteralPath ".\skill\sol-luna-handoff" -Destination $SkillTarget -Recurse
-& (Join-Path $SkillTarget "scripts\install-agents.ps1")
-
-Pop-Location
-```
-
-安装器只接受以下内置旧版代理的精确 UTF-8 字节定义作为自动迁移例外：
-
-- v1.0 内置 `luna-executor.toml` 的 LF 或 CRLF 版本；
-- v1.1 内置 `sol-planner.toml`、`sol-compact-planner.toml`、`luna-executor.toml` 和 `luna-fast-executor.toml` 的 LF 或 CRLF 版本。
-
-匹配时，安装器会升级相应定义并补齐新代理。其他代理差异、用户自定义内容或未知版本会在任何写入前报告冲突；此时应从备份恢复，或人工核对并合并配置。
-
-## 手动调用
-
-在任务中直接提及 Skill：
+Manual invocation is still available when desired:
 
 ```text
 Use $sol-luna-handoff to implement this change.
 ```
 
-## 仓库结构
+## Repository structure
 
 ```text
 .
+├── bin/
+│   └── cli.mjs
+├── docs/superpowers/
+├── package.json
 ├── README.md
+├── README.zh-CN.md
 ├── LICENSE
+├── test/
+│   └── cli.test.mjs
 └── skill/
     └── sol-luna-handoff/
         ├── SKILL.md
         ├── agents/openai.yaml
         ├── assets/
         │   ├── global-agents.md
-        │   ├── luna-executor.toml
-        │   ├── luna-fast-executor.toml
-        │   ├── luna-scout.toml
-        │   ├── sol-compact-planner.toml
-        │   ├── sol-planner.toml
-        │   └── terra-executor.toml
+        │   └── *.toml
         ├── scripts/install-agents.ps1
         └── tests/install-agents.tests.ps1
 ```
 
-## 安全卸载
+## Requirements and limitations
 
-以下脚本移除全局 `AGENTS.md` 中由本项目管理的规则块、仍与随附定义一致的六个代理文件，以及已安装的 Skill 目录。全局文件中的其他内容会保留。
+- Node.js 18 or newer for the npx installer.
+- Git for the GitHub package spec used by npx.
+- Codex with Skills and custom-agent support.
+- Actual model and agent availability depends on the active Codex plan and environment.
+- Routing improves allocation rather than promising the same cost, latency, or quality result for every workload.
 
-代理文件删除前会比较 SHA-256：内容与 Skill 中的随附定义一致时才删除；内容已变化或随附对照文件缺失时保留并发出警告。
+## Development
 
-```powershell
-$CodexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
-$GlobalAgentsPath = Join-Path $CodexHome "AGENTS.md"
-$StartMarker = '<!-- BEGIN SOL-LUNA-HANDOFF MANAGED BLOCK -->'
-$EndMarker = '<!-- END SOL-LUNA-HANDOFF MANAGED BLOCK -->'
-
-if (Test-Path -LiteralPath $GlobalAgentsPath) {
-    $Utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
-    $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-    $Content = [System.IO.File]::ReadAllText($GlobalAgentsPath, $Utf8Strict)
-    $Pattern = '(?ms)^[ \t]*' + [regex]::Escape($StartMarker) + '[ \t]*\r?\n.*?^[ \t]*' + [regex]::Escape($EndMarker) + '[ \t]*(?:\r?\n)?'
-    $Updated = [regex]::new($Pattern).Replace($Content, '', 1)
-    [System.IO.File]::WriteAllText($GlobalAgentsPath, $Updated, $Utf8NoBom)
-}
-
-$SkillTarget = Join-Path $CodexHome "skills\sol-luna-handoff"
-$AgentPairs = @(
-    @{
-        Installed = Join-Path $CodexHome "agents\sol-planner.toml"
-        Bundled = Join-Path $SkillTarget "assets\sol-planner.toml"
-    },
-    @{
-        Installed = Join-Path $CodexHome "agents\sol-compact-planner.toml"
-        Bundled = Join-Path $SkillTarget "assets\sol-compact-planner.toml"
-    },
-    @{
-        Installed = Join-Path $CodexHome "agents\luna-scout.toml"
-        Bundled = Join-Path $SkillTarget "assets\luna-scout.toml"
-    },
-    @{
-        Installed = Join-Path $CodexHome "agents\terra-executor.toml"
-        Bundled = Join-Path $SkillTarget "assets\terra-executor.toml"
-    },
-    @{
-        Installed = Join-Path $CodexHome "agents\luna-executor.toml"
-        Bundled = Join-Path $SkillTarget "assets\luna-executor.toml"
-    },
-    @{
-        Installed = Join-Path $CodexHome "agents\luna-fast-executor.toml"
-        Bundled = Join-Path $SkillTarget "assets\luna-fast-executor.toml"
-    }
-)
-
-foreach ($Pair in $AgentPairs) {
-    if (-not (Test-Path -LiteralPath $Pair.Installed)) {
-        continue
-    }
-
-    if (-not (Test-Path -LiteralPath $Pair.Bundled)) {
-        Write-Warning "Preserving $($Pair.Installed): bundled comparison file is missing."
-        continue
-    }
-
-    $InstalledHash = (Get-FileHash -LiteralPath $Pair.Installed -Algorithm SHA256).Hash
-    $BundledHash = (Get-FileHash -LiteralPath $Pair.Bundled -Algorithm SHA256).Hash
-    if ($InstalledHash -ceq $BundledHash) {
-        Remove-Item -LiteralPath $Pair.Installed -Force
-    } else {
-        Write-Warning "Preserving $($Pair.Installed): its content differs from the bundled definition."
-    }
-}
-
-Remove-Item -LiteralPath $SkillTarget -Recurse -Force -ErrorAction SilentlyContinue
+```bash
+npm test
+npm pack --dry-run
 ```
 
-## 许可证
+The existing PowerShell regression suite can be run separately:
 
-MIT
+```powershell
+& ".\skill\sol-luna-handoff\tests\install-agents.tests.ps1"
+```
+
+## Contributing
+
+Issues and pull requests are welcome, especially for:
+
+- routing edge cases;
+- false Tier 1 or Tier 3 classifications;
+- installer compatibility;
+- reproducible latency or usage comparisons;
+- additional deployment environments.
+
+For a routing issue, include the task shape, expected route, actual route, relevant evidence, and the reason the route should differ.
+
+## License
+
+MIT © 2026 shangzhimingge
+
+If this workflow is useful in your Codex setup, consider ⭐ starring the repository so more Codex users can discover it.
