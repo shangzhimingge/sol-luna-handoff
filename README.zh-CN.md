@@ -203,7 +203,6 @@ Use $sol-luna-handoff to implement this change.
 .
 ├── bin/
 │   └── cli.mjs
-├── docs/superpowers/
 ├── package.json
 ├── README.md
 ├── README.zh-CN.md
