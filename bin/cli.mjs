@@ -428,6 +428,13 @@ function uninstall() {
       if (agent.state !== 'missing') rmSync(agent.target, { force: true });
     }
     if (plan.updatedGlobal !== plan.existingGlobal) atomicWrite(paths.globalAgentsPath, Buffer.from(plan.updatedGlobal, 'utf8'));
+    if (existsSync(paths.skillTarget) || plan.agents.some((agent) => existsSync(agent.target))) {
+      throw new Error('Post-uninstall verification failed: managed files remain');
+    }
+    const remainingGlobal = existsSync(paths.globalAgentsPath) ? readUtf8(paths.globalAgentsPath) : '';
+    if (inspectGlobalContent(remainingGlobal, paths.globalAgentsPath).kind !== 'absent') {
+      throw new Error('Post-uninstall verification failed: managed global rule remains');
+    }
     rmSync(skillBackup, { recursive: true, force: true });
   } catch (error) {
     if (skillMoved) {

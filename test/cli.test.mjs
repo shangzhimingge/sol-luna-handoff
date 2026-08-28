@@ -98,6 +98,26 @@ function assertInstalled(codexHome) {
   assert.match(globalRules, /\$sol-luna-handoff/);
 }
 
+function restoreTaggedSkill(tag, destination) {
+  const prefix = 'skill/sol-luna-handoff/';
+  const listing = spawnSync('git', ['ls-tree', '-r', '--name-only', tag, 'skill/sol-luna-handoff'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  assert.equal(listing.status, 0, listing.stderr);
+  for (const repositoryPath of listing.stdout.trim().split(/\r?\n/u)) {
+    const relative = repositoryPath.slice(prefix.length);
+    const file = spawnSync('git', ['show', `${tag}:${repositoryPath}`], {
+      cwd: root,
+      encoding: null,
+    });
+    assert.equal(file.status, 0, file.stderr?.toString());
+    const target = path.join(destination, ...relative.split('/'));
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, file.stdout);
+  }
+}
+
 test('no arguments performs a complete install and preserves unrelated global rules', (t) => {
   const codexHome = makeCodexHome(t);
   writeFileSync(path.join(codexHome, 'AGENTS.md'), '# Existing rules\n', 'utf8');
@@ -150,6 +170,17 @@ test('unknown installed Skill content aborts before any target is changed', (t) 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Installed Skill collision/);
   assert.deepEqual(snapshot(codexHome), before);
+});
+
+test('an exact v1.1 Skill tree is recognized and upgraded', (t) => {
+  const codexHome = makeCodexHome(t);
+  const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
+  restoreTaggedSkill('v1.1.0', installedSkill);
+
+  const result = runCli(codexHome, ['install']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assertInstalled(codexHome);
 });
 
 test('malformed managed markers abort before any target is changed', (t) => {
