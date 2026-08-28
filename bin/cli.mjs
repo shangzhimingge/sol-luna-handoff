@@ -2,6 +2,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -10,6 +11,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -290,12 +292,34 @@ function replaceSkillDirectory(source, target) {
 }
 
 function captureFile(file) {
-  return existsSync(file) && statSync(file).isFile() ? readFileSync(file) : null;
+  if (!existsSync(file)) return null;
+  const stats = statSync(file);
+  if (!stats.isFile()) return null;
+  return {
+    bytes: readFileSync(file),
+    mode: stats.mode,
+    atimeMs: stats.atimeMs,
+    mtimeMs: stats.mtimeMs,
+  };
 }
 
-function restoreFile(file, bytes) {
-  if (bytes === null) rmSync(file, { force: true });
-  else atomicWrite(file, bytes);
+function restoreFile(file, captured) {
+  if (captured === null) {
+    rmSync(file, { force: true });
+    return;
+  }
+  atomicWrite(file, captured.bytes);
+  chmodSync(file, captured.mode);
+  utimesSync(file, captured.atimeMs / 1000, captured.mtimeMs / 1000);
+}
+
+function injectTestFault(point) {
+  if (
+    process.env.NODE_ENV === 'test'
+    && process.env.SOL_LUNA_HANDOFF_TEST_FAULT === point
+  ) {
+    throw new Error(`Injected test fault: ${point}`);
+  }
 }
 
 function planInstall(paths) {
@@ -324,7 +348,7 @@ function planInstall(paths) {
 
 function applyInstall(paths, plan) {
   const oldAgents = new Map(plan.agents.map(({ target }) => [target, captureFile(target)]));
-  const oldGlobal = existsSync(paths.globalAgentsPath) ? readFileSync(paths.globalAgentsPath) : null;
+  const oldGlobal = captureFile(paths.globalAgentsPath);
   let skillTransaction = null;
   try {
     if (plan.skill.state !== 'current') skillTransaction = replaceSkillDirectory(bundledSkill, paths.skillTarget);
@@ -332,12 +356,13 @@ function applyInstall(paths, plan) {
       if (agent.state !== 'current') atomicWrite(agent.target, readFileSync(path.join(assetsDirectory, agent.fileName)));
     }
     if (plan.updatedGlobal !== plan.existingGlobal) atomicWrite(paths.globalAgentsPath, Buffer.from(plan.updatedGlobal, 'utf8'));
+    injectTestFault('after-global-write');
     const health = collectHealth(paths, plan.block);
     if (!health.healthy) throw new Error('Post-install verification failed');
     skillTransaction?.commit();
   } catch (error) {
     skillTransaction?.rollback();
-    for (const [target, bytes] of oldAgents) restoreFile(target, bytes);
+    for (const [target, captured] of oldAgents) restoreFile(target, captured);
     restoreFile(paths.globalAgentsPath, oldGlobal);
     throw error;
   }
@@ -417,7 +442,7 @@ function uninstall() {
   const transactionId = randomUUID().replaceAll('-', '');
   const skillBackup = `${paths.skillTarget}.${transactionId}.uninstall`;
   const oldAgents = new Map(plan.agents.map(({ target }) => [target, captureFile(target)]));
-  const oldGlobal = existsSync(paths.globalAgentsPath) ? readFileSync(paths.globalAgentsPath) : null;
+  const oldGlobal = captureFile(paths.globalAgentsPath);
   let skillMoved = false;
   try {
     if (plan.skill.state !== 'missing') {
@@ -441,7 +466,7 @@ function uninstall() {
       rmSync(paths.skillTarget, { recursive: true, force: true });
       if (existsSync(skillBackup)) renameSync(skillBackup, paths.skillTarget);
     }
-    for (const [target, bytes] of oldAgents) restoreFile(target, bytes);
+    for (const [target, captured] of oldAgents) restoreFile(target, captured);
     restoreFile(paths.globalAgentsPath, oldGlobal);
     throw error;
   }

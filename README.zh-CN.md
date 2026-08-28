@@ -6,7 +6,8 @@
 
 [English](./README.md)
 
-![Version](https://img.shields.io/badge/version-v1.3.0-2563eb)
+![Version](https://img.shields.io/badge/version-v1.3.1-2563eb)
+[![CI](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
 ![Codex](https://img.shields.io/badge/Codex-Agent%20Skill-111827)
@@ -42,7 +43,7 @@ npx -y github:shangzhimingge/sol-luna-handoff uninstall
 若希望固定到指定版本：
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff#v1.3.0
+npx -y github:shangzhimingge/sol-luna-handoff#v1.3.1
 ```
 
 ## 它解决什么问题
@@ -201,6 +202,7 @@ Use $sol-luna-handoff to implement this change.
 
 ```text
 .
+├── .github/workflows/ci.yml
 ├── bin/
 │   └── cli.mjs
 ├── package.json
@@ -208,7 +210,9 @@ Use $sol-luna-handoff to implement this change.
 ├── README.zh-CN.md
 ├── LICENSE
 ├── test/
-│   └── cli.test.mjs
+│   ├── cli.test.mjs
+│   ├── package-e2e.test.mjs
+│   └── install-agents.tests.ps1
 └── skill/
     └── sol-luna-handoff/
         ├── SKILL.md
@@ -216,8 +220,7 @@ Use $sol-luna-handoff to implement this change.
         ├── assets/
         │   ├── global-agents.md
         │   └── *.toml
-        ├── scripts/install-agents.ps1
-        └── tests/install-agents.tests.ps1
+        └── scripts/install-agents.ps1
 ```
 
 ## 环境要求与限制
@@ -228,18 +231,22 @@ Use $sol-luna-handoff to implement this change.
 - 实际模型和 Agent 可用性取决于当前 Codex 套餐与运行环境。
 - 路由用于优化资源分配，不承诺所有工作负载都获得相同的成本、速度或质量结果。
 
-## 开发与验证
+## 开发与发行验证
 
 ```bash
 npm test
 npm pack --dry-run
 ```
 
-原有 PowerShell 回归测试可单独执行：
+`npm test` 会同时运行 CLI 回归测试和打包后 tarball E2E。E2E 会生成真实 npm 包、检查运行时文件清单，再通过 `npm exec` 在隔离的 `CODEX_HOME` 中完成安装、诊断、重复安装和卸载。
+
+Windows 下可单独运行 PowerShell 安装器回归测试：
 
 ```powershell
-& ".\skill\sol-luna-handoff\tests\install-agents.tests.ps1"
+& ".\test\install-agents.tests.ps1"
 ```
+
+GitHub Actions 会在 Windows、Ubuntu、macOS 上分别使用 Node.js 18、20、22 运行 Node 与打包 E2E，并在独立 Windows 任务中运行 PowerShell 回归套件。
 
 ## 参与贡献
 

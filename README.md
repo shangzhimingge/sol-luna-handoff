@@ -6,7 +6,8 @@
 
 [简体中文](./README.zh-CN.md)
 
-![Version](https://img.shields.io/badge/version-v1.3.0-2563eb)
+![Version](https://img.shields.io/badge/version-v1.3.1-2563eb)
+[![CI](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
 ![Codex](https://img.shields.io/badge/Codex-Agent%20Skill-111827)
@@ -42,7 +43,7 @@ npx -y github:shangzhimingge/sol-luna-handoff uninstall
 To install a specific release instead of the current default branch:
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff#v1.3.0
+npx -y github:shangzhimingge/sol-luna-handoff#v1.3.1
 ```
 
 ## What problem it solves
@@ -201,6 +202,7 @@ Use $sol-luna-handoff to implement this change.
 
 ```text
 .
+├── .github/workflows/ci.yml
 ├── bin/
 │   └── cli.mjs
 ├── package.json
@@ -208,7 +210,9 @@ Use $sol-luna-handoff to implement this change.
 ├── README.zh-CN.md
 ├── LICENSE
 ├── test/
-│   └── cli.test.mjs
+│   ├── cli.test.mjs
+│   ├── package-e2e.test.mjs
+│   └── install-agents.tests.ps1
 └── skill/
     └── sol-luna-handoff/
         ├── SKILL.md
@@ -216,8 +220,7 @@ Use $sol-luna-handoff to implement this change.
         ├── assets/
         │   ├── global-agents.md
         │   └── *.toml
-        ├── scripts/install-agents.ps1
-        └── tests/install-agents.tests.ps1
+        └── scripts/install-agents.ps1
 ```
 
 ## Requirements and limitations
@@ -228,18 +231,22 @@ Use $sol-luna-handoff to implement this change.
 - Actual model and agent availability depends on the active Codex plan and environment.
 - Routing improves allocation rather than promising the same cost, latency, or quality result for every workload.
 
-## Development
+## Development and release verification
 
 ```bash
 npm test
 npm pack --dry-run
 ```
 
-The existing PowerShell regression suite can be run separately:
+`npm test` runs both the CLI regression suite and a packed-tarball E2E. The E2E creates the exact npm archive, checks its runtime file manifest, then installs, diagnoses, reinstalls, and uninstalls it through `npm exec` in an isolated `CODEX_HOME`.
+
+The PowerShell installer regression suite can be run separately on Windows:
 
 ```powershell
-& ".\skill\sol-luna-handoff\tests\install-agents.tests.ps1"
+& ".\test\install-agents.tests.ps1"
 ```
+
+GitHub Actions repeats the Node and packed-package suites on Node.js 18, 20, and 22 across Windows, Ubuntu, and macOS. The PowerShell suite runs in a separate Windows job.
 
 ## Contributing
 

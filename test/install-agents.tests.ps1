@@ -1,9 +1,10 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
 
-$skillDirectory = Split-Path -Parent $PSScriptRoot
+$repositoryRoot = Split-Path -Parent $PSScriptRoot
+$skillDirectory = Join-Path $repositoryRoot 'skill\sol-luna-handoff'
 $installerPath = Join-Path $skillDirectory 'scripts\install-agents.ps1'
 $assetsDirectory = Join-Path $skillDirectory 'assets'
 $agentFiles = @(

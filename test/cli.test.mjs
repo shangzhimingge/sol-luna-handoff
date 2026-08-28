@@ -38,11 +38,11 @@ function makeCodexHome(t) {
   return directory;
 }
 
-function runCli(codexHome, args = []) {
+function runCli(codexHome, args = [], env = {}) {
   return spawnSync(process.execPath, [cliPath, ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, CODEX_HOME: codexHome },
+    env: { ...process.env, CODEX_HOME: codexHome, ...env },
   });
 }
 
@@ -118,6 +118,25 @@ function restoreTaggedSkill(tag, destination) {
   }
 }
 
+function contentSnapshot(directory) {
+  if (!existsSync(directory)) return { exists: false };
+  const files = {};
+  for (const relative of listFiles(directory)) {
+    files[relative] = hashFile(path.join(directory, ...relative.split('/')));
+  }
+  return { exists: true, files };
+}
+
+function restoreTaggedFile(tag, repositoryPath, destination) {
+  const file = spawnSync('git', ['show', `${tag}:${repositoryPath}`], {
+    cwd: root,
+    encoding: null,
+  });
+  assert.equal(file.status, 0, file.stderr?.toString());
+  mkdirSync(path.dirname(destination), { recursive: true });
+  writeFileSync(destination, file.stdout);
+}
+
 function hasGitTag(tag) {
   return spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], {
     cwd: root,
@@ -179,6 +198,35 @@ test('unknown installed Skill content aborts before any target is changed', (t) 
   assert.deepEqual(snapshot(codexHome), before);
 });
 
+test('a Skill target that is a file fails closed without touching other targets', (t) => {
+  const codexHome = makeCodexHome(t);
+  const skillTarget = path.join(codexHome, 'skills', 'sol-luna-handoff');
+  mkdirSync(path.dirname(skillTarget), { recursive: true });
+  writeFileSync(skillTarget, 'occupied by a file\n', 'utf8');
+  writeFileSync(path.join(codexHome, 'AGENTS.md'), '# Keep me\n', 'utf8');
+  const before = contentSnapshot(codexHome);
+
+  const result = runCli(codexHome, ['install']);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Installed Skill collision.*sol-luna-handoff/s);
+  assert.deepEqual(contentSnapshot(codexHome), before);
+});
+
+test('an agent target that is a directory fails closed without touching other targets', (t) => {
+  const codexHome = makeCodexHome(t);
+  const target = path.join(codexHome, 'agents', 'terra-executor.toml');
+  mkdirSync(target, { recursive: true });
+  writeFileSync(path.join(codexHome, 'AGENTS.md'), '# Keep me\n', 'utf8');
+  const before = snapshot(codexHome);
+
+  const result = runCli(codexHome, ['install']);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Custom-agent collision.*terra-executor\.toml/s);
+  assert.deepEqual(snapshot(codexHome), before);
+});
+
 test('an exact v1.1 Skill tree is recognized and upgraded', (t) => {
   if (!hasGitTag('v1.1.0')) {
     t.skip('v1.1.0 tag is absent in this checkout');
@@ -204,6 +252,78 @@ test('malformed managed markers abort before any target is changed', (t) => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /managed global rule markers/i);
   assert.deepEqual(snapshot(codexHome), before);
+});
+
+for (const newline of ['\n', '\r\n']) {
+  const label = newline === '\n' ? 'LF' : 'CRLF';
+  test(`install, reinstall, and uninstall preserve ${label} plus the auto-resume managed block`, (t) => {
+    const codexHome = makeCodexHome(t);
+    const autoResumeBlock = [
+      '<!-- BEGIN CODEX-AUTO-RESUME MANAGED BLOCK -->',
+      '## Codex automatic resume preflight',
+      '',
+      'Keep this independent managed block byte-for-byte.',
+      '<!-- END CODEX-AUTO-RESUME MANAGED BLOCK -->',
+      '',
+    ].join(newline);
+    const original = ['# User rules', '', autoResumeBlock, '## Other rules', 'Keep this too.', ''].join(newline);
+    const globalPath = path.join(codexHome, 'AGENTS.md');
+    writeFileSync(globalPath, original, 'utf8');
+
+    const installed = runCli(codexHome, ['install']);
+    assert.equal(installed.status, 0, installed.stderr);
+    const afterInstall = readFileSync(globalPath, 'utf8');
+    assert.ok(afterInstall.includes(autoResumeBlock));
+    assert.equal(afterInstall.split('<!-- BEGIN CODEX-AUTO-RESUME MANAGED BLOCK -->').length - 1, 1);
+    assert.equal(afterInstall.split(startMarker).length - 1, 1);
+    if (newline === '\r\n') assert.doesNotMatch(afterInstall, /(?<!\r)\n/u);
+    else assert.doesNotMatch(afterInstall, /\r/u);
+
+    const once = readFileSync(globalPath);
+    const reinstalled = runCli(codexHome, ['install']);
+    assert.equal(reinstalled.status, 0, reinstalled.stderr);
+    assert.deepEqual(readFileSync(globalPath), once);
+
+    const uninstalled = runCli(codexHome, ['uninstall']);
+    assert.equal(uninstalled.status, 0, uninstalled.stderr);
+    assert.equal(readFileSync(globalPath, 'utf8'), original);
+  });
+}
+
+test('a failure after all install writes rolls Skill, agents, and global rules back exactly', (t) => {
+  if (!hasGitTag('v1.1.0')) {
+    t.skip('v1.1.0 tag is absent in this checkout');
+    return;
+  }
+  const codexHome = makeCodexHome(t);
+  const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
+  restoreTaggedSkill('v1.1.0', installedSkill);
+  for (const fileName of ['sol-planner.toml', 'sol-compact-planner.toml', 'luna-executor.toml', 'luna-fast-executor.toml']) {
+    restoreTaggedFile(
+      'v1.1.0',
+      `skill/sol-luna-handoff/assets/${fileName}`,
+      path.join(codexHome, 'agents', fileName),
+    );
+  }
+  const originalGlobal = [
+    '# Existing rules',
+    '<!-- BEGIN CODEX-AUTO-RESUME MANAGED BLOCK -->',
+    'preserve me',
+    '<!-- END CODEX-AUTO-RESUME MANAGED BLOCK -->',
+    '',
+  ].join('\r\n');
+  writeFileSync(path.join(codexHome, 'AGENTS.md'), originalGlobal, 'utf8');
+  const before = contentSnapshot(codexHome);
+
+  const result = runCli(codexHome, ['install'], {
+    NODE_ENV: 'test',
+    SOL_LUNA_HANDOFF_TEST_FAULT: 'after-global-write',
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Injected test fault: after-global-write/);
+  assert.deepEqual(contentSnapshot(codexHome), before);
+  assert.equal(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), originalGlobal);
 });
 
 test('doctor is read-only and detects drift', (t) => {

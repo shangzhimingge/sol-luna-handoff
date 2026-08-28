@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        node:
+          - 18
+          - 20
+          - 22
+    steps:
+      - name: Check out repository and release tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: Run CLI and packed-package tests
+        run: npm test
+
+  powershell:
+    name: PowerShell installer regression
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository and release tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Run PowerShell regression suite
+        shell: powershell
+        run: .\test\install-agents.tests.ps1
