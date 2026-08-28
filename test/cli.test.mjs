@@ -118,6 +118,13 @@ function restoreTaggedSkill(tag, destination) {
   }
 }
 
+function hasGitTag(tag) {
+  return spawnSync('git', ['rev-parse', '--verify', '--quiet', `refs/tags/${tag}`], {
+    cwd: root,
+    encoding: 'utf8',
+  }).status === 0;
+}
+
 test('no arguments performs a complete install and preserves unrelated global rules', (t) => {
   const codexHome = makeCodexHome(t);
   writeFileSync(path.join(codexHome, 'AGENTS.md'), '# Existing rules\n', 'utf8');
@@ -173,6 +180,10 @@ test('unknown installed Skill content aborts before any target is changed', (t) 
 });
 
 test('an exact v1.1 Skill tree is recognized and upgraded', (t) => {
+  if (!hasGitTag('v1.1.0')) {
+    t.skip('v1.1.0 tag is absent in this checkout');
+    return;
+  }
   const codexHome = makeCodexHome(t);
   const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
   restoreTaggedSkill('v1.1.0', installedSkill);
