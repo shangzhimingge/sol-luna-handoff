@@ -75,7 +75,7 @@ function snapshot(directory) {
   return { exists: true, files };
 }
 
-function assertInstalled(codexHome) {
+function assertSkillInstalled(codexHome) {
   const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
   assert.deepEqual(listFiles(installedSkill), listFiles(bundledSkill));
   for (const relative of listFiles(bundledSkill)) {
@@ -85,6 +85,21 @@ function assertInstalled(codexHome) {
       `Skill file differs: ${relative}`,
     );
   }
+}
+
+function assertManagedGlobalInstalled(codexHome) {
+  const globalRules = readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8');
+  assert.equal(globalRules.split(startMarker).length - 1, 1);
+  assert.equal(globalRules.split(endMarker).length - 1, 1);
+  assert.match(globalRules, /\$sol-luna-handoff/);
+}
+
+function normalizedText(file) {
+  return readFileSync(file, 'utf8').replace(/\r\n?/gu, '\n');
+}
+
+function assertInstalled(codexHome) {
+  assertSkillInstalled(codexHome);
   for (const fileName of agentFiles) {
     assert.equal(
       hashFile(path.join(codexHome, 'agents', fileName)),
@@ -92,10 +107,7 @@ function assertInstalled(codexHome) {
       `Agent differs: ${fileName}`,
     );
   }
-  const globalRules = readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8');
-  assert.equal(globalRules.split(startMarker).length - 1, 1);
-  assert.equal(globalRules.split(endMarker).length - 1, 1);
-  assert.match(globalRules, /\$sol-luna-handoff/);
+  assertManagedGlobalInstalled(codexHome);
 }
 
 function restoreTaggedSkill(tag, destination) {
@@ -242,34 +254,51 @@ test('an exact v1.1 Skill tree is recognized and upgraded', (t) => {
   assertInstalled(codexHome);
 });
 
-test('an exact v1.3.1 installation is atomically upgraded with global rules preserved', (t) => {
-  if (!hasGitTag('v1.3.1')) {
-    t.skip('v1.3.1 tag is absent in this checkout');
-    return;
-  }
-  const codexHome = makeCodexHome(t);
-  const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
-  restoreTaggedSkill('v1.3.1', installedSkill);
-  for (const fileName of agentFiles) {
-    restoreTaggedFile(
-      'v1.3.1',
-      `skill/sol-luna-handoff/assets/${fileName}`,
-      path.join(codexHome, 'agents', fileName),
-    );
-    const restoredAgent = path.join(codexHome, 'agents', fileName);
-    writeFileSync(restoredAgent, readFileSync(restoredAgent, 'utf8').replace(/\r?\n/gu, '\r\n'), 'utf8');
-  }
-  const legacyTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
-  assert.equal(hashFile(legacyTerra).toUpperCase(), '721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC');
-  const unrelatedRules = '# Keep this user rule\n\n';
-  writeFileSync(path.join(codexHome, 'AGENTS.md'), unrelatedRules, 'utf8');
+for (const fixture of [
+  { label: 'LF', newline: '\n', terraHash: 'A347C7596F1794A6B91B8E55A4B6C2B411B282E07288E9A5955C18933D7EAD26' },
+  { label: 'CRLF', newline: '\r\n', terraHash: '721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC' },
+]) {
+  test(`an exact v1.3.1 ${fixture.label} installation is atomically upgraded`, (t) => {
+    if (!hasGitTag('v1.3.1')) {
+      t.skip('v1.3.1 tag is absent in this checkout');
+      return;
+    }
+    const codexHome = makeCodexHome(t);
+    const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
+    restoreTaggedSkill('v1.3.1', installedSkill);
+    for (const fileName of agentFiles) {
+      const restoredAgent = path.join(codexHome, 'agents', fileName);
+      restoreTaggedFile('v1.3.1', `skill/sol-luna-handoff/assets/${fileName}`, restoredAgent);
+      const lfContent = readFileSync(restoredAgent, 'utf8').replace(/\r\n?/gu, '\n');
+      writeFileSync(restoredAgent, lfContent.replace(/\n/gu, fixture.newline), 'utf8');
+    }
+    const legacyTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
+    assert.equal(hashFile(legacyTerra).toUpperCase(), fixture.terraHash);
+    const unrelatedRules = '# Keep this user rule\n\n';
+    writeFileSync(path.join(codexHome, 'AGENTS.md'), unrelatedRules, 'utf8');
 
-  const result = runCli(codexHome, ['install']);
+    const result = runCli(codexHome, ['install']);
 
-  assert.equal(result.status, 0, result.stderr);
-  assertInstalled(codexHome);
-  assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Keep this user rule\n\n/u);
-});
+    assert.equal(result.status, 0, result.stderr);
+    assertSkillInstalled(codexHome);
+    for (const fileName of ['sol-planner.toml', 'sol-compact-planner.toml', 'luna-scout.toml', 'luna-fast-executor.toml']) {
+      assert.equal(
+        normalizedText(path.join(codexHome, 'agents', fileName)),
+        normalizedText(path.join(assets, fileName)),
+        `Agent differs after newline normalization: ${fileName}`,
+      );
+    }
+    for (const fileName of ['luna-executor.toml', 'terra-executor.toml']) {
+      assert.equal(
+        hashFile(path.join(codexHome, 'agents', fileName)),
+        hashFile(path.join(assets, fileName)),
+        `Changed agent is not canonical: ${fileName}`,
+      );
+    }
+    assertManagedGlobalInstalled(codexHome);
+    assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Keep this user rule\n\n/u);
+  });
+}
 
 test('malformed managed markers abort before any target is changed', (t) => {
   const codexHome = makeCodexHome(t);

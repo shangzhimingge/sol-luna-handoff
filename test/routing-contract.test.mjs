@@ -101,9 +101,15 @@ test("release metadata and migration digests describe v1.4.0", async () => {
   includesAll(chinese, [/1\.4\.0/, /v1\.4\.0/, /Luna 优先/i, /六类 Terra 例外/i]);
   includesAll(cli, [
     /023d90536d5974e510910bb18fd11834386b5a8365116aa0218e911d1033f304/i,
-    /721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC/i,
   ]);
-  includesAll(powershell, [/721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC/i]);
+  const terraHashes = [
+    "A347C7596F1794A6B91B8E55A4B6C2B411B282E07288E9A5955C18933D7EAD26",
+    "721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC",
+  ];
+  const cliTerraBlock = cli.match(/\['terra-executor\.toml', new Set\(\[([\s\S]*?)\]\)\]/u)?.[1] ?? "";
+  const powershellTerraBlock = powershell.match(/'terra-executor\.toml'\s*=\s*@\(([\s\S]*?)\)/u)?.[1] ?? "";
+  assert.deepEqual([...cliTerraBlock.matchAll(/'([0-9A-F]{64})'/gu)].map((match) => match[1]), terraHashes);
+  assert.deepEqual([...powershellTerraBlock.matchAll(/'([0-9A-F]{64})'/gu)].map((match) => match[1]), terraHashes);
   const skillDigestBlock = cli.match(/knownLegacySkillDigests = new Set\(\[([\s\S]*?)\]\);/u)?.[1] ?? "";
   assert.deepEqual([...skillDigestBlock.matchAll(/'([0-9a-f]{64})'/gu)].map((match) => match[1]), [
     "04ed8cc9f7cd7361d423fc03db7fce6dd9916615e9fe3c0a9e56e221e1858600",
