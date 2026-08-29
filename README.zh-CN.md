@@ -2,11 +2,11 @@
 
 > **面向 Codex 的成本感知自适应多代理路由 Skill。**
 >
-> Sol 负责高风险任务的规划与验证，Terra 承担复杂主体实现，Luna 负责快速发现与明确的机械性工作。
+> Sol 负责高风险任务的规划与验证；Tier 2 采用 Luna 优先路由；Terra 处理命名的推理与不确定性例外。
 
 [English](./README.md)
 
-![Version](https://img.shields.io/badge/version-v1.3.1-2563eb)
+![Version](https://img.shields.io/badge/version-v1.4.0-2563eb)
 [![CI](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
@@ -43,7 +43,7 @@ npx -y github:shangzhimingge/sol-luna-handoff uninstall
 若希望固定到指定版本：
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff#v1.3.1
+npx -y github:shangzhimingge/sol-luna-handoff#v1.4.0
 ```
 
 ## 它解决什么问题
@@ -61,7 +61,7 @@ Luna 直接执行并自验
       ↓
 按需 compact Sol 规划
       ↓
-Luna 或 Terra 执行
+默认由 Luna 执行；六类命名例外交给 Terra
       ↓
 只有出现证据触发器时才由 Sol 验证
 
@@ -85,7 +85,7 @@ Sol 强制最终验证
 | 等级 | 精确进入条件 | 默认路线 |
 | --- | --- | --- |
 | **Tier 1 — 快速** | 预计修改 ≤2 个文件、≤100 行、恰好一个子系统、验收条件明确，并且不存在 Tier 3 风险 | Luna 直接执行 |
-| **Tier 2 — 均衡** | Tier 3 不成立，但至少一个 Tier 1 条件不成立 | 条件 Scout → 可选 compact Sol → Luna 或 Terra → 条件 Sol 验证 |
+| **Tier 2 — 均衡** | Tier 3 不成立，但至少一个 Tier 1 条件不成立 | 条件 Scout → 可选 compact Sol → Luna 优先执行或命名的 Terra 例外 → 条件 Sol 验证 |
 | **Tier 3 — 完整** | 大规模、架构、破坏性、安全敏感、部署、公共 API 或无法界定范围的工作 | 条件 Scout → Sol → Terra → Sol |
 
 未知范围不会进入 Tier 1。编辑前仍然无法界定的不确定性会触发升级。
@@ -103,8 +103,8 @@ Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: l
 | `luna_scout` | Luna / low | 只读 | 仓库发现、长日志压缩、调用链证据 |
 | `sol_compact_planner` | Sol / medium | 只读 | Tier 2 有界规划 |
 | `sol_planner` | Sol / high | 只读 | 完整规划与高推理验证 |
-| `terra_executor` | Terra / medium | workspace-write | 多文件逻辑、集成、重构、调试 |
-| `luna_executor` | Luna / medium | workspace-write | 明确的机械、配置、测试和文档工作 |
+| `terra_executor` | Terra / medium | workspace-write | Tier 2 的六类 Terra 例外，以及 Tier 3 主体实现 |
+| `luna_executor` | Luna / medium | workspace-write | 默认处理有界、策略明确、可独立验证的 Tier 2 实现 |
 | `luna_fast_executor` | Luna / low | workspace-write | Tier 1 直接实施与自验 |
 
 发现和执行报告都有输出边界。原始诊断信息保存在任务本地文件中，不会在多个 Agent 之间反复复制。
@@ -121,7 +121,9 @@ Tier 1 始终跳过 Scout。Tier 2 和 Tier 3 只有在宽泛发现可能消耗�
 
 ### Luna 与 Terra
 
-Luna 处理局部、明确、重复、配置、测试或文档工作。Terra 处理多文件业务逻辑、集成、重构、常规调试，以及仍需较广泛实现推理的工作。
+Luna 优先路由会在允许范围有界、实施策略明确、结果可通过可运行检查或可观察证据独立验证时选择 `luna_executor`。多文件工作、业务逻辑与常规局部调试本身都不会触发 Terra。
+
+只有六类 Terra 例外会直接选择 Terra：跨子系统或跨文件不变量推导、共享接口判断、根因模糊、集成不确定性、重大重构，以及需要非局部诊断的未知失败。Luna 首次发现其中一项时，会在扩大范围或越界编辑前停止并报告 `UPGRADE_NEEDED`。协调器只进行一次保留证据的 Luna → Terra 交接，之后继续复用同一个 Terra 完成实现与修正。发现 Tier 3 谓词仍走 Tier 升级，而不是这条交接路径。
 
 ### 验证
 
@@ -129,13 +131,13 @@ Tier 2 只有在出现新证据时才增加 Sol 验证，例如必需检查失�
 
 ## 安装器行为
 
-v1.3 安装器是零运行时依赖的 Node.js CLI。设置了 `CODEX_HOME` 时使用该目录，否则使用 `~/.codex`。
+v1.4 安装器是零运行时依赖的 Node.js CLI。设置了 `CODEX_HOME` 时使用该目录，否则使用 `~/.codex`。
 
 ### 安全特性
 
 - 首次写入前预检 Skill、六个 Agent 和全局规则标记。
 - 当前文件完全一致时保持原样，时间戳也不会变化。
-- 支持迁移与内置 v1.0、v1.1、v1.2 完全一致的 Skill 目录。
+- 支持迁移与内置 v1.0、v1.1、v1.2、v1.3.1 完全一致的 Skill 目录。
 - 只迁移可识别的历史 Agent 定义。
 - 已安装 Skill 或 Agent 含有未知内容时，在写入前停止。
 - 全局规则标记缺失配对或重复时，在写入前停止。
@@ -205,12 +207,15 @@ Use $sol-luna-handoff to implement this change.
 ├── .github/workflows/ci.yml
 ├── bin/
 │   └── cli.mjs
+├── docs/superpowers/specs/
+│   └── 2026-08-30-tier2-luna-first-design.md
 ├── package.json
 ├── README.md
 ├── README.zh-CN.md
 ├── LICENSE
 ├── test/
 │   ├── cli.test.mjs
+│   ├── routing-contract.test.mjs
 │   ├── package-e2e.test.mjs
 │   └── install-agents.tests.ps1
 └── skill/

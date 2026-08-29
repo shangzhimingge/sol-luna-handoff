@@ -242,6 +242,35 @@ test('an exact v1.1 Skill tree is recognized and upgraded', (t) => {
   assertInstalled(codexHome);
 });
 
+test('an exact v1.3.1 installation is atomically upgraded with global rules preserved', (t) => {
+  if (!hasGitTag('v1.3.1')) {
+    t.skip('v1.3.1 tag is absent in this checkout');
+    return;
+  }
+  const codexHome = makeCodexHome(t);
+  const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
+  restoreTaggedSkill('v1.3.1', installedSkill);
+  for (const fileName of agentFiles) {
+    restoreTaggedFile(
+      'v1.3.1',
+      `skill/sol-luna-handoff/assets/${fileName}`,
+      path.join(codexHome, 'agents', fileName),
+    );
+    const restoredAgent = path.join(codexHome, 'agents', fileName);
+    writeFileSync(restoredAgent, readFileSync(restoredAgent, 'utf8').replace(/\r?\n/gu, '\r\n'), 'utf8');
+  }
+  const legacyTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
+  assert.equal(hashFile(legacyTerra).toUpperCase(), '721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC');
+  const unrelatedRules = '# Keep this user rule\n\n';
+  writeFileSync(path.join(codexHome, 'AGENTS.md'), unrelatedRules, 'utf8');
+
+  const result = runCli(codexHome, ['install']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assertInstalled(codexHome);
+  assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Keep this user rule\n\n/u);
+});
+
 test('malformed managed markers abort before any target is changed', (t) => {
   const codexHome = makeCodexHome(t);
   writeFileSync(path.join(codexHome, 'AGENTS.md'), `${startMarker}\npartial\n`, 'utf8');

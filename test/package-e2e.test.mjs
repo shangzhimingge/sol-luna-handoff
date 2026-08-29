@@ -31,6 +31,7 @@ const requiredPackageFiles = [
   'README.md',
   'README.zh-CN.md',
   'bin/cli.mjs',
+  'docs/superpowers/specs/2026-08-30-tier2-luna-first-design.md',
   'package.json',
   'skill/sol-luna-handoff/SKILL.md',
   'skill/sol-luna-handoff/agents/openai.yaml',

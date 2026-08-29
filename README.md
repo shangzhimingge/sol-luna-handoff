@@ -2,11 +2,11 @@
 
 > **Cost-aware adaptive multi-agent routing for Codex.**
 >
-> Sol plans and verifies high-risk work, Terra handles substantial implementation, and Luna performs fast discovery or explicit mechanical work.
+> Sol plans and verifies high-risk work, Luna-first routing handles bounded Tier 2 implementation, and Terra handles named reasoning and uncertainty exceptions.
 
 [简体中文](./README.zh-CN.md)
 
-![Version](https://img.shields.io/badge/version-v1.3.1-2563eb)
+![Version](https://img.shields.io/badge/version-v1.4.0-2563eb)
 [![CI](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
@@ -43,7 +43,7 @@ npx -y github:shangzhimingge/sol-luna-handoff uninstall
 To install a specific release instead of the current default branch:
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff#v1.3.1
+npx -y github:shangzhimingge/sol-luna-handoff#v1.4.0
 ```
 
 ## What problem it solves
@@ -61,7 +61,7 @@ Optional Luna Scout
     ↓
 Optional compact Sol plan
     ↓
-Luna or Terra executes
+Luna executes by default; Terra handles six named exceptions
     ↓
 Sol verifies only when evidence requires it
 
@@ -85,7 +85,7 @@ Classification order is deterministic: **Tier 3 → Tier 1 → Tier 2**.
 | Tier | Exact selection rule | Default route |
 | --- | --- | --- |
 | **Tier 1 — Fast** | ≤2 expected changed files, ≤100 expected changed lines, exactly one subsystem, explicit acceptance criteria, and no Tier 3 risk | Luna direct execution |
-| **Tier 2 — Balanced** | Tier 3 is false, but at least one Tier 1 condition is false | Conditional Scout → optional compact Sol → Luna or Terra → conditional Sol verification |
+| **Tier 2 — Balanced** | Tier 3 is false, but at least one Tier 1 condition is false | Conditional Scout → optional compact Sol → Luna-first execution or a named Terra exception → conditional Sol verification |
 | **Tier 3 — Full** | Large, architectural, destructive, security-sensitive, deployment-related, public-API, or unbounded work | Conditional Scout → Sol → Terra → Sol |
 
 Unknown bounds do not qualify a task for Tier 1. Unbounded uncertainty escalates instead of being treated as low risk.
@@ -103,8 +103,8 @@ Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: l
 | `luna_scout` | Luna / low | read-only | Repository discovery, long-log compression, call-chain evidence |
 | `sol_compact_planner` | Sol / medium | read-only | Bounded Tier 2 planning |
 | `sol_planner` | Sol / high | read-only | Full planning and high-reasoning verification |
-| `terra_executor` | Terra / medium | workspace-write | Multi-file logic, integration, refactoring, debugging |
-| `luna_executor` | Luna / medium | workspace-write | Explicit mechanical, config, test, and docs work |
+| `terra_executor` | Terra / medium | workspace-write | Six Terra exceptions in Tier 2, plus Tier 3 main implementation |
+| `luna_executor` | Luna / medium | workspace-write | Default bounded, explicit, independently verifiable Tier 2 implementation |
 | `luna_fast_executor` | Luna / low | workspace-write | Tier 1 direct implementation and self-verification |
 
 Discovery and executor reports are bounded. Raw diagnostics stay in task-local files rather than being copied repeatedly between agents.
@@ -121,7 +121,9 @@ Tier 2 skips Sol when the implementation brief is already explicit. Compact Sol 
 
 ### Luna vs Terra
 
-Luna receives local, explicit, repetitive, configuration, test, or documentation work. Terra receives multi-file business logic, integration, refactoring, ordinary debugging, and implementation that still requires broader reasoning.
+Luna-first routing selects `luna_executor` when the permitted scope is bounded, the implementation strategy is explicit, and the result is independently verifiable through runnable checks or observable evidence. Multi-file work, business logic, and ordinary local debugging do not by themselves select Terra.
+
+Terra is selected directly only for six Terra exceptions: cross-subsystem or cross-file invariant derivation, shared-interface judgment, an ambiguous root cause, integration uncertainty, a major refactor, or an unknown failure requiring non-local diagnosis. If Luna first discovers one, it stops before broadening scope or editing across the boundary and reports `UPGRADE_NEEDED`. The coordinator performs one evidence-preserving Luna → Terra handoff, then reuses the same Terra for the remaining implementation and corrections. Tier 3 discoveries still trigger a tier upgrade rather than this handoff.
 
 ### Verification
 
@@ -129,13 +131,13 @@ Tier 2 adds Sol verification only when fresh evidence shows value: a failed requ
 
 ## Installer behavior
 
-The v1.3 installer is a dependency-free Node.js CLI. It uses `CODEX_HOME` when set and otherwise targets `~/.codex`.
+The v1.4 installer is a dependency-free Node.js CLI. It uses `CODEX_HOME` when set and otherwise targets `~/.codex`.
 
 ### Safety properties
 
 - Preflights the Skill, all six agents, and global markers before the first mutation.
 - Keeps exact current files unchanged, including timestamps.
-- Migrates exact bundled v1.0, v1.1, and v1.2 Skill trees.
+- Migrates exact bundled v1.0, v1.1, v1.2, and v1.3.1 Skill trees.
 - Migrates only recognized historical agent definitions.
 - Stops before writing when an installed Skill or agent contains unknown content.
 - Rejects malformed or duplicate global managed-block markers.
@@ -205,12 +207,15 @@ Use $sol-luna-handoff to implement this change.
 ├── .github/workflows/ci.yml
 ├── bin/
 │   └── cli.mjs
+├── docs/superpowers/specs/
+│   └── 2026-08-30-tier2-luna-first-design.md
 ├── package.json
 ├── README.md
 ├── README.zh-CN.md
 ├── LICENSE
 ├── test/
 │   ├── cli.test.mjs
+│   ├── routing-contract.test.mjs
 │   ├── package-e2e.test.mjs
 │   └── install-agents.tests.ps1
 └── skill/

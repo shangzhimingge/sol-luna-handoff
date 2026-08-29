@@ -36,6 +36,8 @@ const knownLegacySkillDigests = new Set([
   '04ed8cc9f7cd7361d423fc03db7fce6dd9916615e9fe3c0a9e56e221e1858600',
   '9bd7838e897c033d600f7caa93a282c36284034f4d8e9215f68fb8edac879baa',
   '0f10693ea535ea263d25dcf7f7f503bee3c705847e9b10b2eb1272db4f71b1ee',
+  '86bca345f4e8b10730665e63fbbe83466a9c5eee0572e44dc1acc7c37e718f9f',
+  '023d90536d5974e510910bb18fd11834386b5a8365116aa0218e911d1033f304',
 ]);
 const knownLegacyAgentHashes = new Map([
   ['sol-planner.toml', new Set([
@@ -55,6 +57,9 @@ const knownLegacyAgentHashes = new Map([
   ['luna-fast-executor.toml', new Set([
     '5400B0F6F9EE8CAAD4678779A6FB89F99C59835669BF579DD0A70F1F05BF9393',
     '099C58C9F0AF4B6B2A0F923782E0953BB798FB8AA48ED29EDF7E2550EAA3F5A6',
+  ])],
+  ['terra-executor.toml', new Set([
+    '721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC',
   ])],
 ]);
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
