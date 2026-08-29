@@ -125,6 +125,8 @@ Luna-first routing selects `luna_executor` when the permitted scope is bounded, 
 
 Terra is selected directly only for six Terra exceptions: cross-subsystem or cross-file invariant derivation, shared-interface judgment, an ambiguous root cause, integration uncertainty, a major refactor, or an unknown failure requiring non-local diagnosis. If Luna first discovers one, it stops before broadening scope or editing across the boundary and reports `UPGRADE_NEEDED`. The coordinator performs one evidence-preserving Luna → Terra handoff, then reuses the same Terra for the remaining implementation and corrections. Tier 3 discoveries still trigger a tier upgrade rather than this handoff.
 
+Terra is not a fallback for other Tier 2 work. When a Luna condition is not yet established, an applicable compact plan runs before executor selection; missing facts produce `NEEDS_CONTEXT` naming the exact gap; and a boundary that remains unclear before editing follows the existing Tier 3 ambiguity upgrade. The boundary is re-evaluated after context or planning, and only a named exception can select Terra within Tier 2.
+
 ### Verification
 
 Tier 2 adds Sol verification only when fresh evidence shows value: a failed required check, scope expansion, incomplete acceptance evidence, a remaining executor concern, or a diff that diverges from the brief. Tier 3 always ends with Sol verification.

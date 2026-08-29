@@ -92,6 +92,14 @@ Select `terra_executor` directly only when the task already requires at least on
 5. major refactor;
 6. unknown failure requiring non-local diagnosis.
 
+Do not use Terra as a fallback. If no named Terra exception exists but bounded scope, an explicit implementation strategy, or independent verification is not yet established, do not select an executor yet:
+
+- when a Tier 2 planning trigger applies, apply the compact-planning triggers and run `sol_compact_planner`, then re-evaluate the Luna/Terra boundary from the binding plan;
+- when facts required to establish one of the three Luna conditions are missing, return `NEEDS_CONTEXT` naming the exact missing condition and facts;
+- when the boundary remains ambiguous before editing, apply the existing Tier 3 ambiguity predicate and restart routing as Tier 3.
+
+Only a named Terra exception permits a Tier 2 route to `terra_executor`.
+
 Known failures that can be diagnosed inside the bounded local scope remain with Luna. Luna may resolve ordinary implementation details and local diagnostic decisions within the brief or plan; it does not redesign, broaden scope, change shared-interface semantics without direction, or pursue non-local unknown failures.
 
 If Luna first discovers a Terra exception or required scope expansion, it must stop before expanding scope or making further edits and return `UPGRADE_NEEDED`. Preserve the current diff and report the triggering exception, evidence, changed files, check evidence, and the next decision needed. The coordinator permits only one Luna-to-Terra executor switch for a Tier 2 routing pass. It sends the original task brief or binding plan, Luna report, current diff, and check evidence to `terra_executor`, then must reuse the same `terra_executor` for the remaining implementation and ordinary corrections. Do not switch back to Luna or start another Terra for the same executor upgrade.

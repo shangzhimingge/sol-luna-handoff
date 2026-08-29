@@ -31,6 +31,30 @@ test("Tier 2 names the complete Terra exception set", async () => {
   ]);
 });
 
+test("Tier 2 has no catch-all Terra path", async () => {
+  const [skill, design, readme, chinese] = await Promise.all([
+    read("skill/sol-luna-handoff/SKILL.md"),
+    read("docs/superpowers/specs/2026-08-30-tier2-luna-first-design.md"),
+    read("README.md"),
+    read("README.zh-CN.md"),
+  ]);
+  for (const text of [skill, design, readme]) {
+    assert.doesNotMatch(text, /(?:every|all) other Tier 2[^.]*Terra/i);
+    assert.doesNotMatch(text, /otherwise[^.]{0,120}(?:start|select|route)[^.]{0,40}Terra/i);
+  }
+  assert.doesNotMatch(chinese, /其他[^。]{0,80}Tier 2[^。]{0,80}Terra/i);
+  assert.doesNotMatch(chinese, /否则[^。]{0,100}Terra/i);
+  includesAll(skill, [
+    /Do not use Terra as a fallback/i,
+    /return `NEEDS_CONTEXT` naming the exact missing condition/i,
+    /apply the compact-planning triggers/i,
+    /boundary remains ambiguous before editing.*Tier 3/is,
+  ]);
+  includesAll(design, [/NEEDS_CONTEXT/, /compact plan/i, /Tier 3 ambiguity/i, /Terra is not a fallback/i]);
+  includesAll(readme, [/NEEDS_CONTEXT/, /compact plan/i, /Tier 3 ambiguity/i, /Terra is not a fallback/i]);
+  includesAll(chinese, [/NEEDS_CONTEXT/, /compact plan/i, /Tier 3 歧义升级/i, /Terra 不是兜底/]);
+});
+
 test("Luna to Terra handoff is single-use and preserves evidence and correction count", async () => {
   const skill = await read("skill/sol-luna-handoff/SKILL.md");
   includesAll(skill, [
@@ -68,15 +92,24 @@ test("executor prompts implement the Luna-first boundary", async () => {
 });
 
 test("release metadata and migration digests describe v1.4.0", async () => {
-  const [pkg, readme, chinese, cli] = await Promise.all([
+  const [pkg, readme, chinese, cli, powershell] = await Promise.all([
     read("package.json"), read("README.md"), read("README.zh-CN.md"), read("bin/cli.mjs"),
+    read("skill/sol-luna-handoff/scripts/install-agents.ps1"),
   ]);
   assert.equal(JSON.parse(pkg).version, "1.4.0");
   includesAll(readme, [/1\.4\.0/, /v1\.4\.0/, /Luna-first/i, /six Terra exceptions/i]);
   includesAll(chinese, [/1\.4\.0/, /v1\.4\.0/, /Luna 优先/i, /六类 Terra 例外/i]);
   includesAll(cli, [
-    /86bca345f4e8b10730665e63fbbe83466a9c5eee0572e44dc1acc7c37e718f9f/i,
+    /023d90536d5974e510910bb18fd11834386b5a8365116aa0218e911d1033f304/i,
     /721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC/i,
+  ]);
+  includesAll(powershell, [/721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC/i]);
+  const skillDigestBlock = cli.match(/knownLegacySkillDigests = new Set\(\[([\s\S]*?)\]\);/u)?.[1] ?? "";
+  assert.deepEqual([...skillDigestBlock.matchAll(/'([0-9a-f]{64})'/gu)].map((match) => match[1]), [
+    "04ed8cc9f7cd7361d423fc03db7fce6dd9916615e9fe3c0a9e56e221e1858600",
+    "9bd7838e897c033d600f7caa93a282c36284034f4d8e9215f68fb8edac879baa",
+    "0f10693ea535ea263d25dcf7f7f503bee3c705847e9b10b2eb1272db4f71b1ee",
+    "023d90536d5974e510910bb18fd11834386b5a8365116aa0218e911d1033f304",
   ]);
 });
 

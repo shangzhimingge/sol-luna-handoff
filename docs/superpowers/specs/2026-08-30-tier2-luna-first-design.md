@@ -25,17 +25,21 @@ Tier classification, conditional Scout and Planner selection, Tier 1 direct exec
 | Integration outcome remains uncertain | Terra | Terra exception 4. |
 | Major refactor is required | Terra | Terra exception 5. |
 | Unknown failure requires non-local diagnosis | Terra | Terra exception 6. |
+| A Luna condition lacks facts and no exception is established | `NEEDS_CONTEXT` | Name the missing bounded, explicit, or verification facts. |
+| A planning trigger can establish strategy or verification | Compact plan, then re-evaluate | Planning precedes executor selection. |
+| The boundary remains ambiguous before editing | Tier 3 ambiguity upgrade | Existing ambiguity routing applies. |
 | Luna first discovers an exception or required scope expansion | `UPGRADE_NEEDED`, then Terra once | Stop before expanding scope or making further edits. |
 | Executor discovers a Tier 3 predicate | Existing tier upgrade | This is not a Luna-to-Terra handoff. |
 
 ## State transitions
 
 1. After normal Tier and planning decisions, evaluate the six Terra exceptions.
-2. If none exists and the work is bounded, explicit, and independently verifiable, start `luna_executor`; otherwise start `terra_executor` directly.
-3. Luna may make ordinary implementation and local diagnostic decisions inside the binding scope.
-4. On first discovering an exception or required scope expansion, Luna preserves its diff, stops before crossing the boundary, and returns `UPGRADE_NEEDED` with evidence.
-5. The coordinator replaces Luna with one `terra_executor`. That same Terra finishes implementation and ordinary correction rounds. There is no Terra-to-Luna return or second same-kind executor switch.
-6. The correction count continues across the handoff. Only acceptance of a new plan under the existing two-round replan rule resets it.
+2. If none exists and the work is bounded, explicit, and independently verifiable, start `luna_executor`.
+3. If a Luna condition is not established, use an applicable compact plan before executor selection, return `NEEDS_CONTEXT` for exact missing facts, or take the existing Tier 3 ambiguity route when the boundary remains unclear before editing. Re-evaluate after new context or a plan. Terra is not a fallback.
+4. Luna may make ordinary implementation and local diagnostic decisions inside the binding scope.
+5. On first discovering an exception or required scope expansion, Luna preserves its diff, stops before crossing the boundary, and returns `UPGRADE_NEEDED` with evidence.
+6. The coordinator replaces Luna with one `terra_executor`. That same Terra finishes implementation and ordinary correction rounds. There is no Terra-to-Luna return or second same-kind executor switch.
+7. The correction count continues across the handoff. Only acceptance of a new plan under the existing two-round replan rule resets it.
 
 ## Handoff payload
 
