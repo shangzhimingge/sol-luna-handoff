@@ -32,6 +32,7 @@ const agentFiles = [
 ];
 const startMarker = '<!-- BEGIN SOL-LUNA-HANDOFF MANAGED BLOCK -->';
 const endMarker = '<!-- END SOL-LUNA-HANDOFF MANAGED BLOCK -->';
+const profiles = new Set(['adaptive', 'sol-luna']);
 const knownLegacySkillDigests = new Set([
   '04ed8cc9f7cd7361d423fc03db7fce6dd9916615e9fe3c0a9e56e221e1858600',
   '9bd7838e897c033d600f7caa93a282c36284034f4d8e9215f68fb8edac879baa',
@@ -68,7 +69,8 @@ function usage() {
   return `Sol → Terra/Luna Handoff installer
 
 Usage:
-  sol-luna-handoff [install|doctor|uninstall]
+  sol-luna-handoff [install|doctor] [--profile adaptive|sol-luna]
+  sol-luna-handoff uninstall
   sol-luna-handoff --help
 
 Commands:
@@ -81,6 +83,32 @@ Environment:
 `;
 }
 
+function profileConfig(profile) {
+  return `${JSON.stringify({ schemaVersion: 1, executionProfile: profile }, null, 2)}\n`;
+}
+
+function parseArguments(argv) {
+  const [command = 'install', ...extra] = argv;
+  if (command === '--help' || command === '-h' || command === 'help') {
+    if (extra.length > 0) throw new Error(`Unexpected arguments: ${extra.join(' ')}`);
+    return { command: 'help', requestedProfile: undefined };
+  }
+  if (!['install', 'doctor', 'uninstall'].includes(command)) throw new Error(`Unknown command: ${command}`);
+  let requestedProfile;
+  for (let index = 0; index < extra.length; index += 1) {
+    if (extra[index] !== '--profile') throw new Error(`Unexpected arguments: ${extra.slice(index).join(' ')}`);
+    if (command === 'uninstall') throw new Error('--profile is supported only for install and doctor');
+    if (requestedProfile !== undefined) throw new Error('Duplicate --profile argument');
+    const value = extra[index + 1];
+    if (value === undefined || value === '--profile') throw new Error('Missing value for --profile');
+    if (!profiles.has(value)) throw new Error(`Unknown profile: ${value}; expected adaptive or sol-luna`);
+    requestedProfile = value;
+    index += 1;
+  }
+  if (command === 'install' && requestedProfile === undefined) requestedProfile = 'adaptive';
+  return { command, requestedProfile };
+}
+
 function codexPaths() {
   const codexHome = path.resolve(process.env.CODEX_HOME || path.join(os.homedir(), '.codex'));
   return {
@@ -88,6 +116,7 @@ function codexPaths() {
     skillTarget: path.join(codexHome, 'skills', 'sol-luna-handoff'),
     agentsDirectory: path.join(codexHome, 'agents'),
     globalAgentsPath: path.join(codexHome, 'AGENTS.md'),
+    profileConfigPath: path.join(codexHome, 'sol-luna-handoff.json'),
   };
 }
 
@@ -237,6 +266,16 @@ function inspectGlobal(file, block) {
   return { state: current ? 'current' : 'changed', content };
 }
 
+function inspectProfile(file) {
+  if (!existsSync(file)) return { state: 'missing' };
+  if (!statSync(file).isFile()) return { state: 'changed' };
+  const content = readUtf8(file);
+  for (const profile of profiles) {
+    if (content === profileConfig(profile)) return { state: 'current', profile, content };
+  }
+  return { state: 'changed', content };
+}
+
 function ensureDirectory(directory) {
   mkdirSync(directory, { recursive: true });
 }
@@ -327,7 +366,7 @@ function injectTestFault(point) {
   }
 }
 
-function planInstall(paths) {
+function planInstall(paths, profile) {
   const block = bundledManagedBlock();
   const skill = inspectSkill(paths.skillTarget);
   if (skill.state === 'changed') throw new Error(`Installed Skill collision: destination contains unrecognized content: ${paths.skillTarget}`);
@@ -341,19 +380,31 @@ function planInstall(paths) {
 
   const existingGlobal = existsSync(paths.globalAgentsPath) ? readUtf8(paths.globalAgentsPath) : '';
   const updatedGlobal = installGlobalContent(existingGlobal, block, paths.globalAgentsPath);
+  const installedProfile = inspectProfile(paths.profileConfigPath);
+  if (installedProfile.state === 'changed') {
+    throw new Error(`Profile configuration collision: destination contains unrecognized content: ${paths.profileConfigPath}`);
+  }
+  const updatedProfile = profileConfig(profile);
   return {
     block,
     skill,
     agents,
     existingGlobal,
     updatedGlobal,
-    changed: skill.state !== 'current' || agents.some((agent) => agent.state !== 'current') || updatedGlobal !== existingGlobal,
+    installedProfile,
+    profile,
+    updatedProfile,
+    changed: skill.state !== 'current'
+      || agents.some((agent) => agent.state !== 'current')
+      || updatedGlobal !== existingGlobal
+      || installedProfile.content !== updatedProfile,
   };
 }
 
 function applyInstall(paths, plan) {
   const oldAgents = new Map(plan.agents.map(({ target }) => [target, captureFile(target)]));
   const oldGlobal = captureFile(paths.globalAgentsPath);
+  const oldProfile = captureFile(paths.profileConfigPath);
   let skillTransaction = null;
   try {
     if (plan.skill.state !== 'current') skillTransaction = replaceSkillDirectory(bundledSkill, paths.skillTarget);
@@ -361,19 +412,23 @@ function applyInstall(paths, plan) {
       if (agent.state !== 'current') atomicWrite(agent.target, readFileSync(path.join(assetsDirectory, agent.fileName)));
     }
     if (plan.updatedGlobal !== plan.existingGlobal) atomicWrite(paths.globalAgentsPath, Buffer.from(plan.updatedGlobal, 'utf8'));
+    if (plan.installedProfile.content !== plan.updatedProfile) {
+      atomicWrite(paths.profileConfigPath, Buffer.from(plan.updatedProfile, 'utf8'));
+    }
     injectTestFault('after-global-write');
-    const health = collectHealth(paths, plan.block);
+    const health = collectHealth(paths, plan.block, plan.profile);
     if (!health.healthy) throw new Error('Post-install verification failed');
     skillTransaction?.commit();
   } catch (error) {
     skillTransaction?.rollback();
     for (const [target, captured] of oldAgents) restoreFile(target, captured);
     restoreFile(paths.globalAgentsPath, oldGlobal);
+    restoreFile(paths.profileConfigPath, oldProfile);
     throw error;
   }
 }
 
-function collectHealth(paths, block = bundledManagedBlock()) {
+function collectHealth(paths, block = bundledManagedBlock(), requestedProfile) {
   const skill = inspectSkill(paths.skillTarget);
   const agents = agentFiles.map((fileName) => ({
     fileName,
@@ -385,17 +440,23 @@ function collectHealth(paths, block = bundledManagedBlock()) {
   } catch (error) {
     global = { state: 'changed', error: error.message };
   }
+  const profile = inspectProfile(paths.profileConfigPath);
   return {
     skill,
     agents,
     global,
-    healthy: skill.state === 'current' && agents.every((agent) => agent.state === 'current') && global.state === 'current',
+    profile,
+    healthy: skill.state === 'current'
+      && agents.every((agent) => agent.state === 'current')
+      && global.state === 'current'
+      && profile.state === 'current'
+      && (requestedProfile === undefined || profile.profile === requestedProfile),
   };
 }
 
-function install() {
+function install(profile) {
   const paths = codexPaths();
-  const plan = planInstall(paths);
+  const plan = planInstall(paths, profile);
   if (!plan.changed) {
     console.log('Sol → Terra/Luna Handoff is already up to date.');
     return;
@@ -408,12 +469,13 @@ function install() {
   console.log('Start a new Codex task if the current app session has cached agent discovery.');
 }
 
-function doctor() {
+function doctor(requestedProfile) {
   const paths = codexPaths();
-  const health = collectHealth(paths);
+  const health = collectHealth(paths, bundledManagedBlock(), requestedProfile);
   console.log(`Skill: ${health.skill.state}`);
   for (const agent of health.agents) console.log(`Agent ${agent.fileName}: ${agent.state}`);
   console.log(`Global rule: ${health.global.state}`);
+  console.log(`Profile: ${health.profile.state === 'current' ? health.profile.profile : health.profile.state}`);
   if (health.global.error) console.log(`  ${health.global.error}`);
   if (!health.healthy) {
     process.exitCode = 1;
@@ -479,16 +541,14 @@ function uninstall() {
 }
 
 function main() {
-  const [command = 'install', ...extra] = process.argv.slice(2);
-  if (command === '--help' || command === '-h' || command === 'help') {
+  const { command, requestedProfile } = parseArguments(process.argv.slice(2));
+  if (command === 'help') {
     console.log(usage());
     return;
   }
-  if (extra.length > 0) throw new Error(`Unexpected arguments: ${extra.join(' ')}`);
-  if (command === 'install') install();
-  else if (command === 'doctor') doctor();
+  if (command === 'install') install(requestedProfile);
+  else if (command === 'doctor') doctor(requestedProfile);
   else if (command === 'uninstall') uninstall();
-  else throw new Error(`Unknown command: ${command}`);
 }
 
 try {

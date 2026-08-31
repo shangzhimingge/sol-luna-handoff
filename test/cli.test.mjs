@@ -31,6 +31,7 @@ const agentFiles = [
 ];
 const startMarker = '<!-- BEGIN SOL-LUNA-HANDOFF MANAGED BLOCK -->';
 const endMarker = '<!-- END SOL-LUNA-HANDOFF MANAGED BLOCK -->';
+const profileConfigName = 'sol-luna-handoff.json';
 
 function makeCodexHome(t) {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'sol-luna-cli-test-'));
@@ -110,6 +111,10 @@ function assertInstalled(codexHome) {
   assertManagedGlobalInstalled(codexHome);
 }
 
+function readProfile(codexHome) {
+  return JSON.parse(readFileSync(path.join(codexHome, profileConfigName), 'utf8'));
+}
+
 function restoreTaggedSkill(tag, destination) {
   const prefix = 'skill/sol-luna-handoff/';
   const listing = spawnSync('git', ['ls-tree', '-r', '--name-only', tag, 'skill/sol-luna-handoff'], {
@@ -165,8 +170,42 @@ test('no arguments performs a complete install and preserves unrelated global ru
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Installed Sol.*Luna Handoff/u);
   assertInstalled(codexHome);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
   assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Existing rules\n/u);
 });
+
+test('install --profile sol-luna persists the requested profile', (t) => {
+  const codexHome = makeCodexHome(t);
+
+  const result = runCli(codexHome, ['install', '--profile', 'sol-luna']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assertInstalled(codexHome);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
+  assert.equal(
+    readFileSync(path.join(codexHome, profileConfigName), 'utf8'),
+    '{\n  "schemaVersion": 1,\n  "executionProfile": "sol-luna"\n}\n',
+  );
+});
+
+for (const args of [
+  ['install', '--profile'],
+  ['install', '--profile', 'unknown'],
+  ['install', '--profile', 'adaptive', '--profile', 'sol-luna'],
+  ['uninstall', '--profile', 'sol-luna'],
+]) {
+  test(`invalid profile arguments ${args.join(' ')} fail before mutation`, (t) => {
+    const codexHome = makeCodexHome(t);
+    writeFileSync(path.join(codexHome, 'keep.txt'), 'preserve\n', 'utf8');
+    const before = snapshot(codexHome);
+
+    const result = runCli(codexHome, args);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /profile|Unexpected arguments/i);
+    assert.deepEqual(snapshot(codexHome), before);
+  });
+}
 
 test('reinstall is idempotent and leaves file timestamps unchanged', async (t) => {
   const codexHome = makeCodexHome(t);
