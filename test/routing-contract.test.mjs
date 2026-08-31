@@ -91,14 +91,14 @@ test("executor prompts implement the Luna-first boundary", async () => {
   ]);
 });
 
-test("release metadata and migration digests describe v1.4.0", async () => {
+test("release metadata and migration digests describe v1.5.0", async () => {
   const [pkg, readme, chinese, cli, powershell] = await Promise.all([
     read("package.json"), read("README.md"), read("README.zh-CN.md"), read("bin/cli.mjs"),
     read("skill/sol-luna-handoff/scripts/install-agents.ps1"),
   ]);
-  assert.equal(JSON.parse(pkg).version, "1.4.0");
-  includesAll(readme, [/1\.4\.0/, /v1\.4\.0/, /Luna-first/i, /six Terra exceptions/i]);
-  includesAll(chinese, [/1\.4\.0/, /v1\.4\.0/, /Luna 优先/i, /六类 Terra 例外/i]);
+  assert.equal(JSON.parse(pkg).version, "1.5.0");
+  includesAll(readme, [/1\.5\.0/, /v1\.5\.0/, /--profile sol-luna/i, /execution profile/i]);
+  includesAll(chinese, [/1\.5\.0/, /v1\.5\.0/, /--profile sol-luna/i, /执行配置/i]);
   includesAll(cli, [
     /023d90536d5974e510910bb18fd11834386b5a8365116aa0218e911d1033f304/i,
   ]);
@@ -123,10 +123,45 @@ test("existing tier, verifier, and correction invariants remain explicit", async
   const skill = await read("skill/sol-luna-handoff/SKILL.md");
   includesAll(skill, [
     /Tier 1 selects `luna`/,
-    /Tier 3 always selects `terra`/,
+    /adaptive.*Tier 3.*`terra`/is,
     /mandatory high-reasoning verification/i,
     /After 2 correction rounds/i,
     /400 output tokens/i,
     /300 output tokens/i,
   ]);
+});
+
+test("routing reads and emits the persisted execution profile", async () => {
+  const skill = await read("skill/sol-luna-handoff/SKILL.md");
+  includesAll(skill, [
+    /\$CODEX_HOME\/sol-luna-handoff\.json/,
+    /missing configuration.*`adaptive`/is,
+    /schemaVersion.*1/is,
+    /executionProfile.*`adaptive`.*`sol-luna`/is,
+    /Route: Tier N - \{reason\}; Profile: adaptive\|sol-luna; Scout: yes\|no; Planner: none\|compact\|full; Executor: luna\|terra/,
+    /include the active profile.*executor brief/is,
+  ]);
+});
+
+test("sol-luna keeps Sol planning and routes every tier to Luna", async () => {
+  const [skill, luna, metadata] = await Promise.all([
+    read("skill/sol-luna-handoff/SKILL.md"),
+    read("skill/sol-luna-handoff/assets/luna-executor.toml"),
+    read("skill/sol-luna-handoff/agents/openai.yaml"),
+  ]);
+  includesAll(skill, [
+    /`sol-luna`.*Tier 1.*`luna_fast_executor`/is,
+    /`sol-luna`.*Tier 2.*`luna_executor`/is,
+    /`sol-luna`.*Tier 3.*`luna_executor`/is,
+    /Tier 3.*full `sol_planner`.*mandatory high-reasoning verification/is,
+    /never select `terra_executor`.*`sol-luna`/is,
+    /Terra exceptions.*planning and verification evidence/is,
+  ]);
+  includesAll(luna, [
+    /active profile/i,
+    /`sol-luna`/,
+    /do not request a Terra handoff/i,
+    /binding decision.*Sol planning or verification/is,
+  ]);
+  includesAll(metadata, [/adaptive/i, /Sol.*Luna/i]);
 });

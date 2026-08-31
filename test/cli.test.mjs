@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  cpSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -109,6 +109,16 @@ function assertInstalled(codexHome) {
     );
   }
   assertManagedGlobalInstalled(codexHome);
+}
+
+function copyDirectory(source, destination) {
+  mkdirSync(destination, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(destination, entry.name);
+    if (entry.isDirectory()) copyDirectory(from, to);
+    else copyFileSync(from, to);
+  }
 }
 
 function readProfile(codexHome) {
@@ -238,7 +248,7 @@ test('agent collision aborts before any target is changed', (t) => {
 test('unknown installed Skill content aborts before any target is changed', (t) => {
   const codexHome = makeCodexHome(t);
   const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
-  cpSync(bundledSkill, installedSkill, { recursive: true });
+  copyDirectory(bundledSkill, installedSkill);
   writeFileSync(path.join(installedSkill, 'SKILL.md'), 'locally customized\n', 'utf8');
   const before = snapshot(codexHome);
 

@@ -6,7 +6,7 @@
 
 [English](./README.md)
 
-![Version](https://img.shields.io/badge/version-v1.4.0-2563eb)
+![Version](https://img.shields.io/badge/version-v1.5.0-2563eb)
 [![CI](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
@@ -18,12 +18,19 @@
 npx -y github:shangzhimingge/sol-luna-handoff
 ```
 
+默认的 `adaptive` 执行配置保留现有 Luna 优先与 Terra 例外行为。若要保留 Sol 规划和验证，同时让所有实施都由 Luna 完成，可启用 `sol-luna` 配置：
+
+```bash
+npx -y github:shangzhimingge/sol-luna-handoff install --profile sol-luna
+```
+
 这一条命令会安装或安全升级：
 
 ```text
 ~/.codex/skills/sol-luna-handoff/   Skill 本体
 ~/.codex/agents/*.toml              6 个自定义 Agent
 ~/.codex/AGENTS.md                  全局自动触发规则块
+~/.codex/sol-luna-handoff.json      受管执行配置
 ```
 
 安装后直接正常使用 Codex。受支持的项目制品任务会通过全局规则自动加载 Skill，不需要再运行首次初始化指令。
@@ -36,6 +43,9 @@ npx -y github:shangzhimingge/sol-luna-handoff
 # 只读健康检查
 npx -y github:shangzhimingge/sol-luna-handoff doctor
 
+# 要求已安装配置与指定值一致
+npx -y github:shangzhimingge/sol-luna-handoff doctor --profile sol-luna
+
 # 安全卸载
 npx -y github:shangzhimingge/sol-luna-handoff uninstall
 ```
@@ -43,8 +53,15 @@ npx -y github:shangzhimingge/sol-luna-handoff uninstall
 若希望固定到指定版本：
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff#v1.4.0
+npx -y github:shangzhimingge/sol-luna-handoff#v1.5.0
 ```
+
+## 执行配置
+
+- `adaptive`（默认）：Tier 1 使用 Luna；Tier 2 以 Luna 为主并保留六类封闭 Terra 例外；Tier 3 在 Sol 完整规划与强制验证之间使用 Terra。
+- `sol-luna`：Tier 1 使用 `luna_fast_executor`；Tier 2 和 Tier 3 都使用 `luna_executor`。Tier 3 仍保留 Sol 完整规划和强制验证；Terra 例外只作为规划与验证证据，不再切换执行器。
+
+安装器在 `sol-luna-handoff.json` 中持久化唯一执行配置。重新安装可原子切换已识别的受管状态；未知或自定义配置会在写入前停止。为了兼容通用 Skill 安装方式，配置文件缺失时 Skill 按 `adaptive` 处理。
 
 ## 它解决什么问题
 
@@ -93,7 +110,7 @@ Sol 强制最终验证
 首次规划或执行前，Skill 会输出一条最终路线：
 
 ```text
-Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: luna|terra
+Route: Tier N - {reason}; Profile: adaptive|sol-luna; Scout: yes|no; Planner: none|compact|full; Executor: luna|terra
 ```
 
 ## 六个专用 Agent
@@ -104,7 +121,7 @@ Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: l
 | `sol_compact_planner` | Sol / medium | 只读 | Tier 2 有界规划 |
 | `sol_planner` | Sol / high | 只读 | 完整规划与高推理验证 |
 | `terra_executor` | Terra / medium | workspace-write | Tier 2 的六类 Terra 例外，以及 Tier 3 主体实现 |
-| `luna_executor` | Luna / medium | workspace-write | 默认处理有界、策略明确、可独立验证的 Tier 2 实现 |
+| `luna_executor` | Luna / medium | workspace-write | 默认处理有界 Tier 2；在 `sol-luna` 中处理所有 Tier 2/3 实施 |
 | `luna_fast_executor` | Luna / low | workspace-write | Tier 1 直接实施与自验 |
 
 发现和执行报告都有输出边界。原始诊断信息保存在任务本地文件中，不会在多个 Agent 之间反复复制。
@@ -133,11 +150,12 @@ Tier 2 只有在出现新证据时才增加 Sol 验证，例如必需检查失�
 
 ## 安装器行为
 
-v1.4 安装器是零运行时依赖的 Node.js CLI。设置了 `CODEX_HOME` 时使用该目录，否则使用 `~/.codex`。
+v1.5 安装器是零运行时依赖的 Node.js CLI。设置了 `CODEX_HOME` 时使用该目录，否则使用 `~/.codex`。
 
 ### 安全特性
 
 - 首次写入前预检 Skill、六个 Agent 和全局规则标记。
+- 预检并原子持久化可识别的 `adaptive` 或 `sol-luna` 执行配置。
 - 当前文件完全一致时保持原样，时间戳也不会变化。
 - 支持迁移与内置 v1.0、v1.1、v1.2、v1.3.1 完全一致的 Skill 目录。
 - 只迁移可识别的历史 Agent 定义。
@@ -183,7 +201,7 @@ if (Test-Path -LiteralPath $SkillTarget) {
 
 New-Item -ItemType Directory -Path (Split-Path -Parent $SkillTarget) -Force | Out-Null
 Copy-Item -LiteralPath ".\sol-luna-handoff\skill\sol-luna-handoff" -Destination $SkillTarget -Recurse
-& (Join-Path $SkillTarget "scripts\install-agents.ps1")
+& (Join-Path $SkillTarget "scripts\install-agents.ps1") -Profile sol-luna
 ```
 
 PowerShell 脚本仍然保持幂等，并为 Agent 与全局规则安装部分提供 `-WhatIf`。

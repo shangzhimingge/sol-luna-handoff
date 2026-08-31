@@ -6,7 +6,7 @@
 
 [简体中文](./README.zh-CN.md)
 
-![Version](https://img.shields.io/badge/version-v1.4.0-2563eb)
+![Version](https://img.shields.io/badge/version-v1.5.0-2563eb)
 [![CI](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
@@ -18,12 +18,19 @@
 npx -y github:shangzhimingge/sol-luna-handoff
 ```
 
+The default `adaptive` execution profile preserves the existing Luna-first/Terra-exception behavior. To keep Sol planning and verification while sending all execution to Luna, opt in to the `sol-luna` profile:
+
+```bash
+npx -y github:shangzhimingge/sol-luna-handoff install --profile sol-luna
+```
+
 That single command installs or safely upgrades:
 
 ```text
 ~/.codex/skills/sol-luna-handoff/   Skill
 ~/.codex/agents/*.toml              6 custom agents
 ~/.codex/AGENTS.md                  managed automatic-activation rule
+~/.codex/sol-luna-handoff.json      managed execution profile
 ```
 
 After setup, use Codex normally. Supported project-artifact tasks activate the Skill through the managed global rule; there is no first-use setup command.
@@ -36,6 +43,9 @@ If Codex was already open and cached agent discovery, start a new Codex task or 
 # Read-only health check
 npx -y github:shangzhimingge/sol-luna-handoff doctor
 
+# Require the installed profile to match
+npx -y github:shangzhimingge/sol-luna-handoff doctor --profile sol-luna
+
 # Safe uninstall
 npx -y github:shangzhimingge/sol-luna-handoff uninstall
 ```
@@ -43,8 +53,15 @@ npx -y github:shangzhimingge/sol-luna-handoff uninstall
 To install a specific release instead of the current default branch:
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff#v1.4.0
+npx -y github:shangzhimingge/sol-luna-handoff#v1.5.0
 ```
+
+## Execution profiles
+
+- `adaptive` (default): Tier 1 uses Luna, Tier 2 is Luna-first with six closed Terra exceptions, and Tier 3 uses Terra between full Sol planning and mandatory Sol verification.
+- `sol-luna`: Tier 1 uses `luna_fast_executor`; Tier 2 and Tier 3 use `luna_executor`. Tier 3 still runs full Sol planning and mandatory Sol verification. Terra exceptions become planning and verification evidence rather than executor switches.
+
+The installer persists exactly one profile in `sol-luna-handoff.json`. Re-running install switches recognized managed state atomically; unknown or customized configuration stops before mutation. Omitting the file is treated as `adaptive` by the Skill for compatibility.
 
 ## What problem it solves
 
@@ -93,7 +110,7 @@ Unknown bounds do not qualify a task for Tier 1. Unbounded uncertainty escalates
 Immediately before planning or execution, the Skill emits one route line:
 
 ```text
-Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: luna|terra
+Route: Tier N - {reason}; Profile: adaptive|sol-luna; Scout: yes|no; Planner: none|compact|full; Executor: luna|terra
 ```
 
 ## Six purpose-built agents
@@ -104,7 +121,7 @@ Route: Tier N - {reason}; Scout: yes|no; Planner: none|compact|full; Executor: l
 | `sol_compact_planner` | Sol / medium | read-only | Bounded Tier 2 planning |
 | `sol_planner` | Sol / high | read-only | Full planning and high-reasoning verification |
 | `terra_executor` | Terra / medium | workspace-write | Six Terra exceptions in Tier 2, plus Tier 3 main implementation |
-| `luna_executor` | Luna / medium | workspace-write | Default bounded, explicit, independently verifiable Tier 2 implementation |
+| `luna_executor` | Luna / medium | workspace-write | Default bounded Tier 2 implementation; all Tier 2/3 execution in `sol-luna` |
 | `luna_fast_executor` | Luna / low | workspace-write | Tier 1 direct implementation and self-verification |
 
 Discovery and executor reports are bounded. Raw diagnostics stay in task-local files rather than being copied repeatedly between agents.
@@ -133,11 +150,12 @@ Tier 2 adds Sol verification only when fresh evidence shows value: a failed requ
 
 ## Installer behavior
 
-The v1.4 installer is a dependency-free Node.js CLI. It uses `CODEX_HOME` when set and otherwise targets `~/.codex`.
+The v1.5 installer is a dependency-free Node.js CLI. It uses `CODEX_HOME` when set and otherwise targets `~/.codex`.
 
 ### Safety properties
 
 - Preflights the Skill, all six agents, and global markers before the first mutation.
+- Preflights and atomically persists recognized `adaptive` or `sol-luna` profile state.
 - Keeps exact current files unchanged, including timestamps.
 - Migrates exact bundled v1.0, v1.1, v1.2, and v1.3.1 Skill trees.
 - Migrates only recognized historical agent definitions.
@@ -183,7 +201,7 @@ if (Test-Path -LiteralPath $SkillTarget) {
 
 New-Item -ItemType Directory -Path (Split-Path -Parent $SkillTarget) -Force | Out-Null
 Copy-Item -LiteralPath ".\sol-luna-handoff\skill\sol-luna-handoff" -Destination $SkillTarget -Recurse
-& (Join-Path $SkillTarget "scripts\install-agents.ps1")
+& (Join-Path $SkillTarget "scripts\install-agents.ps1") -Profile sol-luna
 ```
 
 The PowerShell setup script remains idempotent and supports `-WhatIf` for the agent and global-rule portion.

@@ -69,14 +69,18 @@ function usage() {
   return `Sol → Terra/Luna Handoff installer
 
 Usage:
-  sol-luna-handoff [install|doctor] [--profile adaptive|sol-luna]
-  sol-luna-handoff uninstall
+  sol-luna-handoff [install|doctor|uninstall]
+  sol-luna-handoff [install|doctor] --profile adaptive|sol-luna
   sol-luna-handoff --help
 
 Commands:
   install    Install or safely upgrade the Skill, six agents, and global rule (default)
   doctor     Check the complete installation without changing files
   uninstall  Remove only exact managed content
+
+Profiles:
+  adaptive   Luna-first Tier 2 with closed Terra exceptions (default)
+  sol-luna   Sol planning and verification with Luna execution
 
 Environment:
   CODEX_HOME  Target Codex directory (default: ~/.codex)

@@ -1,7 +1,7 @@
 {
   "name": "sol-luna-handoff",
-  "version": "1.4.0",
-  "description": "Cost-aware adaptive Sol, Terra, and Luna routing for Codex",
+  "version": "1.5.0",
+  "description": "Cost-aware adaptive or Sol-to-Luna routing for Codex",
   "type": "module",
   "bin": {
     "sol-luna-handoff": "./bin/cli.mjs"
