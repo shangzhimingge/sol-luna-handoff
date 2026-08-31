@@ -415,6 +415,7 @@ function applyInstall(paths, plan) {
     if (plan.installedProfile.content !== plan.updatedProfile) {
       atomicWrite(paths.profileConfigPath, Buffer.from(plan.updatedProfile, 'utf8'));
     }
+    injectTestFault('after-profile-write');
     injectTestFault('after-global-write');
     const health = collectHealth(paths, plan.block, plan.profile);
     if (!health.healthy) throw new Error('Post-install verification failed');
@@ -496,13 +497,20 @@ function planUninstall(paths) {
   });
   const existingGlobal = existsSync(paths.globalAgentsPath) ? readUtf8(paths.globalAgentsPath) : '';
   const updatedGlobal = uninstallGlobalContent(existingGlobal, block, paths.globalAgentsPath);
-  return { skill, agents, existingGlobal, updatedGlobal };
+  const profile = inspectProfile(paths.profileConfigPath);
+  if (profile.state === 'changed') {
+    throw new Error(`Refusing to uninstall: profile configuration was customized: ${paths.profileConfigPath}`);
+  }
+  return { skill, agents, existingGlobal, updatedGlobal, profile };
 }
 
 function uninstall() {
   const paths = codexPaths();
   const plan = planUninstall(paths);
-  if (plan.skill.state === 'missing' && plan.agents.every((agent) => agent.state === 'missing') && plan.updatedGlobal === plan.existingGlobal) {
+  if (plan.skill.state === 'missing'
+    && plan.agents.every((agent) => agent.state === 'missing')
+    && plan.updatedGlobal === plan.existingGlobal
+    && plan.profile.state === 'missing') {
     console.log('Sol → Terra/Luna Handoff is not installed.');
     return;
   }
@@ -510,6 +518,7 @@ function uninstall() {
   const skillBackup = `${paths.skillTarget}.${transactionId}.uninstall`;
   const oldAgents = new Map(plan.agents.map(({ target }) => [target, captureFile(target)]));
   const oldGlobal = captureFile(paths.globalAgentsPath);
+  const oldProfile = captureFile(paths.profileConfigPath);
   let skillMoved = false;
   try {
     if (plan.skill.state !== 'missing') {
@@ -520,7 +529,10 @@ function uninstall() {
       if (agent.state !== 'missing') rmSync(agent.target, { force: true });
     }
     if (plan.updatedGlobal !== plan.existingGlobal) atomicWrite(paths.globalAgentsPath, Buffer.from(plan.updatedGlobal, 'utf8'));
-    if (existsSync(paths.skillTarget) || plan.agents.some((agent) => existsSync(agent.target))) {
+    if (plan.profile.state !== 'missing') rmSync(paths.profileConfigPath, { force: true });
+    if (existsSync(paths.skillTarget)
+      || plan.agents.some((agent) => existsSync(agent.target))
+      || existsSync(paths.profileConfigPath)) {
       throw new Error('Post-uninstall verification failed: managed files remain');
     }
     const remainingGlobal = existsSync(paths.globalAgentsPath) ? readUtf8(paths.globalAgentsPath) : '';
@@ -535,6 +547,7 @@ function uninstall() {
     }
     for (const [target, captured] of oldAgents) restoreFile(target, captured);
     restoreFile(paths.globalAgentsPath, oldGlobal);
+    restoreFile(paths.profileConfigPath, oldProfile);
     throw error;
   }
   console.log('Uninstalled Sol → Terra/Luna Handoff managed content.');

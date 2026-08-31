@@ -31,7 +31,9 @@ const requiredPackageFiles = [
   'README.md',
   'README.zh-CN.md',
   'bin/cli.mjs',
+  'docs/superpowers/plans/2026-09-01-sol-luna-profile.md',
   'docs/superpowers/specs/2026-08-30-tier2-luna-first-design.md',
+  'docs/superpowers/specs/2026-09-01-sol-luna-profile-design.md',
   'package.json',
   'skill/sol-luna-handoff/SKILL.md',
   'skill/sol-luna-handoff/agents/openai.yaml',
@@ -176,4 +178,30 @@ test('the packed package installs, diagnoses, reinstalls idempotently, and unins
     assert.equal(existsSync(path.join(codexHome, 'agents', fileName)), false, `Agent remains: ${fileName}`);
   }
   assert.equal(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), originalGlobal);
+});
+
+test('the packed package supports the sol-luna profile lifecycle', (t) => {
+  const { tarball, cache } = pack(t);
+  const codexHome = makeTemporaryDirectory(t, 'sol-luna-packed-profile-home-');
+
+  const installed = runPackedCli(tarball, cache, codexHome, ['install', '--profile', 'sol-luna']);
+  assert.equal(installed.status, 0, installed.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(codexHome, 'sol-luna-handoff.json'), 'utf8')), {
+    schemaVersion: 1,
+    executionProfile: 'sol-luna',
+  });
+  const healthy = runPackedCli(tarball, cache, codexHome, ['doctor', '--profile', 'sol-luna']);
+  assert.equal(healthy.status, 0, healthy.stderr);
+  const uninstalled = runPackedCli(tarball, cache, codexHome, ['uninstall']);
+  assert.equal(uninstalled.status, 0, uninstalled.stderr);
+  assert.equal(existsSync(path.join(codexHome, 'sol-luna-handoff.json')), false);
+});
+
+test('the PowerShell installer exposes an atomic profile contract', () => {
+  const script = readFileSync(path.join(root, 'skill', 'sol-luna-handoff', 'scripts', 'install-agents.ps1'), 'utf8');
+  assert.match(script, /ValidateSet\('adaptive',\s*'sol-luna'\)/);
+  assert.match(script, /\[string\]\$Profile\s*=\s*'adaptive'/);
+  assert.match(script, /sol-luna-handoff\.json/);
+  assert.match(script, /executionProfile/);
+  assert.match(script, /Write-BytesAtomically[^]*profile/i);
 });

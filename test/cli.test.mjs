@@ -439,6 +439,55 @@ test('doctor is read-only and detects drift', (t) => {
   assert.deepEqual(snapshot(codexHome), before);
 });
 
+test('profiles switch atomically and doctor enforces an explicitly requested profile', (t) => {
+  const codexHome = makeCodexHome(t);
+  assert.equal(runCli(codexHome, ['install']).status, 0);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
+
+  const switched = runCli(codexHome, ['install', '--profile', 'sol-luna']);
+  assert.equal(switched.status, 0, switched.stderr);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
+  assert.equal(runCli(codexHome, ['doctor']).status, 0);
+  assert.equal(runCli(codexHome, ['doctor', '--profile', 'sol-luna']).status, 0);
+  const mismatch = runCli(codexHome, ['doctor', '--profile', 'adaptive']);
+  assert.notEqual(mismatch.status, 0);
+  assert.match(mismatch.stdout, /Profile: sol-luna/);
+
+  const restored = runCli(codexHome, ['install', '--profile', 'adaptive']);
+  assert.equal(restored.status, 0, restored.stderr);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
+});
+
+test('customized profile configuration aborts install and uninstall before mutation', (t) => {
+  const codexHome = makeCodexHome(t);
+  assert.equal(runCli(codexHome, ['install']).status, 0);
+  const configPath = path.join(codexHome, profileConfigName);
+  writeFileSync(configPath, '{"schemaVersion":1,"executionProfile":"adaptive"}\n', 'utf8');
+  const before = snapshot(codexHome);
+
+  for (const args of [['install', '--profile', 'sol-luna'], ['uninstall']]) {
+    const result = runCli(codexHome, args);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /profile configuration|customized/i);
+    assert.deepEqual(snapshot(codexHome), before);
+  }
+});
+
+test('a failure after the profile write restores the previous profile exactly', (t) => {
+  const codexHome = makeCodexHome(t);
+  assert.equal(runCli(codexHome, ['install']).status, 0);
+  const before = contentSnapshot(codexHome);
+
+  const result = runCli(codexHome, ['install', '--profile', 'sol-luna'], {
+    NODE_ENV: 'test',
+    SOL_LUNA_HANDOFF_TEST_FAULT: 'after-profile-write',
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Injected test fault: after-profile-write/);
+  assert.deepEqual(contentSnapshot(codexHome), before);
+});
+
 test('uninstall removes exact managed content and preserves unrelated AGENTS.md text', (t) => {
   const codexHome = makeCodexHome(t);
   writeFileSync(path.join(codexHome, 'AGENTS.md'), '# Existing rules\n', 'utf8');
@@ -448,6 +497,7 @@ test('uninstall removes exact managed content and preserves unrelated AGENTS.md 
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(existsSync(path.join(codexHome, 'skills', 'sol-luna-handoff')), false);
+  assert.equal(existsSync(path.join(codexHome, profileConfigName)), false);
   for (const fileName of agentFiles) {
     assert.equal(existsSync(path.join(codexHome, 'agents', fileName)), false);
   }
