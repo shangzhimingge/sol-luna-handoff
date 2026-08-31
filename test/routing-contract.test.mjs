@@ -105,6 +105,8 @@ test("release metadata and migration digests describe v1.5.0", async () => {
   const terraHashes = [
     "A347C7596F1794A6B91B8E55A4B6C2B411B282E07288E9A5955C18933D7EAD26",
     "721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC",
+    "71EAC578F0925EB11C358E2AD1C65A69BD784966A16A798DFBD05A71F97F87D3",
+    "49BAA5F4707F6F97117A106BC6380E63CD71D4A5EE79DE4257B9F0742D18C16A",
   ];
   const cliTerraBlock = cli.match(/\['terra-executor\.toml', new Set\(\[([\s\S]*?)\]\)\]/u)?.[1] ?? "";
   const powershellTerraBlock = powershell.match(/'terra-executor\.toml'\s*=\s*@\(([\s\S]*?)\)/u)?.[1] ?? "";
@@ -116,6 +118,7 @@ test("release metadata and migration digests describe v1.5.0", async () => {
     "9bd7838e897c033d600f7caa93a282c36284034f4d8e9215f68fb8edac879baa",
     "0f10693ea535ea263d25dcf7f7f503bee3c705847e9b10b2eb1272db4f71b1ee",
     "023d90536d5974e510910bb18fd11834386b5a8365116aa0218e911d1033f304",
+    "164f8325b78527cf1aa0eff8427807cb2e8d8d84160df89f2e73504781e2986f",
   ]);
 });
 

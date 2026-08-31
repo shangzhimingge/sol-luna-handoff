@@ -217,6 +217,13 @@ for (const args of [
   });
 }
 
+function hasGitCommit(revision) {
+  return spawnSync('git', ['rev-parse', '--verify', '--quiet', `${revision}^{commit}`], {
+    cwd: root,
+    encoding: 'utf8',
+  }).status === 0;
+}
+
 test('reinstall is idempotent and leaves file timestamps unchanged', async (t) => {
   const codexHome = makeCodexHome(t);
   assert.equal(runCli(codexHome, ['install']).status, 0);
@@ -348,6 +355,37 @@ for (const fixture of [
     assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Keep this user rule\n\n/u);
   });
 }
+
+test('an exact v1.4.0 CRLF installation is atomically upgraded', (t) => {
+  const legacyCommit = '322d106facaccfb7f78d6a5b0f67f0b1c810f4ea';
+  if (!hasGitCommit(legacyCommit)) {
+    t.skip(`${legacyCommit} is absent in this checkout`);
+    return;
+  }
+  const codexHome = makeCodexHome(t);
+  const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
+  restoreTaggedSkill(legacyCommit, installedSkill);
+  for (const relative of listFiles(installedSkill)) {
+    const file = path.join(installedSkill, ...relative.split('/'));
+    const content = readFileSync(file, 'utf8').replace(/\r\n?|\n/gu, '\n');
+    writeFileSync(file, content.replace(/\n/gu, '\r\n'), 'utf8');
+  }
+
+  for (const fileName of agentFiles) {
+    const target = path.join(codexHome, 'agents', fileName);
+    restoreTaggedFile(legacyCommit, `skill/sol-luna-handoff/assets/${fileName}`, target);
+    const content = readFileSync(target, 'utf8').replace(/\r\n?|\n/gu, '\n');
+    writeFileSync(target, content.replace(/\n/gu, '\r\n'), 'utf8');
+  }
+  writeFileSync(path.join(codexHome, 'AGENTS.md'), '# Preserve this rule\r\n', 'utf8');
+
+  const result = runCli(codexHome, ['install', '--profile', 'sol-luna']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assertInstalled(codexHome);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
+  assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Preserve this rule\r\n/u);
+});
 
 test('malformed managed markers abort before any target is changed', (t) => {
   const codexHome = makeCodexHome(t);
