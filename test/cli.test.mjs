@@ -533,7 +533,7 @@ test('customized profile configuration aborts install and uninstall before mutat
 
 test('a failure after the profile write restores the previous profile exactly', (t) => {
   const codexHome = makeCodexHome(t);
-  assert.equal(runCli(codexHome, ['install']).status, 0);
+  assert.equal(runCli(codexHome, ['install', '--profile', 'adaptive']).status, 0);
   const before = contentSnapshot(codexHome);
 
   const result = runCli(codexHome, ['install', '--profile', 'sol-luna'], {

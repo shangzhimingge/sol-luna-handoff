@@ -1,12 +1,12 @@
-# Sol → Terra/Luna Handoff
+# Sol → Luna by default
 
-> **Cost-aware adaptive multi-agent routing for Codex.**
+> **Default Codex workflow: Sol plans and verifies; Luna executes.**
 >
-> Sol plans and verifies high-risk work, Luna-first routing handles bounded Tier 2 implementation, and Terra handles named reasoning and uncertainty exceptions.
+> The `sol-luna` profile is now the default for every installation and profileless Skill load. Terra routing is available only when `adaptive` is explicitly selected.
 
 [简体中文](./README.zh-CN.md)
 
-![Version](https://img.shields.io/badge/version-v1.5.0-2563eb)
+![Version](https://img.shields.io/badge/version-v1.6.0-2563eb)
 [![CI](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
@@ -18,10 +18,12 @@
 npx -y github:shangzhimingge/sol-luna-handoff
 ```
 
-The default `adaptive` execution profile preserves the existing Luna-first/Terra-exception behavior. To keep Sol planning and verification while sending all execution to Luna, opt in to the `sol-luna` profile:
+The command above installs the default `sol-luna` profile: Sol plans and verifies, while Luna performs all Tier 1, Tier 2, and Tier 3 execution.
+
+To enable Terra routing, explicitly select the optional `adaptive` profile:
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff install --profile sol-luna
+npx -y github:shangzhimingge/sol-luna-handoff install --profile adaptive
 ```
 
 That single command installs or safely upgrades:
@@ -53,15 +55,15 @@ npx -y github:shangzhimingge/sol-luna-handoff uninstall
 To install a specific release instead of the current default branch:
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff#v1.5.0
+npx -y github:shangzhimingge/sol-luna-handoff#v1.6.0
 ```
 
 ## Execution profiles
 
-- `adaptive` (default): Tier 1 uses Luna, Tier 2 is Luna-first with six closed Terra exceptions, and Tier 3 uses Terra between full Sol planning and mandatory Sol verification.
-- `sol-luna`: Tier 1 uses `luna_fast_executor`; Tier 2 and Tier 3 use `luna_executor`. Tier 3 still runs full Sol planning and mandatory Sol verification. Terra exceptions become planning and verification evidence rather than executor switches.
+- `sol-luna` (**default**): Tier 1 uses `luna_fast_executor`; Tier 2 and Tier 3 use `luna_executor`. Tier 3 still runs full Sol planning and mandatory Sol verification. Terra exceptions become planning and verification evidence rather than executor switches.
+- `adaptive` (explicit opt-in): Tier 1 uses Luna, Tier 2 is Luna-first with six closed Terra exceptions, and Tier 3 uses Terra between full Sol planning and mandatory Sol verification.
 
-The installer persists exactly one profile in `sol-luna-handoff.json`. Re-running install switches recognized managed state atomically; unknown or customized configuration stops before mutation. Omitting the file is treated as `adaptive` by the Skill for compatibility.
+The installer persists exactly one profile in `sol-luna-handoff.json`. Re-running install switches recognized managed state atomically; unknown or customized configuration stops before mutation. Omitting the file is treated as `sol-luna`, so generic Skill installations receive the same default.
 
 ## What problem it solves
 

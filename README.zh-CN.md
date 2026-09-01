@@ -1,12 +1,12 @@
-# Sol → Terra/Luna Handoff
+# 默认 Sol → Luna
 
-> **面向 Codex 的成本感知自适应多代理路由 Skill。**
+> **Codex 默认工作流：Sol 负责规划与复核，Luna 负责执行。**
 >
-> Sol 负责高风险任务的规划与验证；Tier 2 采用 Luna 优先路由；Terra 处理命名的推理与不确定性例外。
+> `sol-luna` 现在是所有安装和无配置 Skill 加载的默认模式。只有显式选择 `adaptive` 才会启用 Terra 路由。
 
 [English](./README.md)
 
-![Version](https://img.shields.io/badge/version-v1.5.0-2563eb)
+![Version](https://img.shields.io/badge/version-v1.6.0-2563eb)
 [![CI](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/shangzhimingge/sol-luna-handoff/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933)
@@ -18,10 +18,12 @@
 npx -y github:shangzhimingge/sol-luna-handoff
 ```
 
-默认的 `adaptive` 执行配置保留现有 Luna 优先与 Terra 例外行为。若要保留 Sol 规划和验证，同时让所有实施都由 Luna 完成，可启用 `sol-luna` 配置：
+上述命令会安装默认的 `sol-luna` 配置：Sol 负责规划与复核，Luna 负责 Tier 1、Tier 2 和 Tier 3 的全部执行。
+
+如需启用 Terra 路由，请显式选择可选的 `adaptive` 配置：
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff install --profile sol-luna
+npx -y github:shangzhimingge/sol-luna-handoff install --profile adaptive
 ```
 
 这一条命令会安装或安全升级：
@@ -53,15 +55,15 @@ npx -y github:shangzhimingge/sol-luna-handoff uninstall
 若希望固定到指定版本：
 
 ```bash
-npx -y github:shangzhimingge/sol-luna-handoff#v1.5.0
+npx -y github:shangzhimingge/sol-luna-handoff#v1.6.0
 ```
 
 ## 执行配置
 
-- `adaptive`（默认）：Tier 1 使用 Luna；Tier 2 以 Luna 为主并保留六类封闭 Terra 例外；Tier 3 在 Sol 完整规划与强制验证之间使用 Terra。
-- `sol-luna`：Tier 1 使用 `luna_fast_executor`；Tier 2 和 Tier 3 都使用 `luna_executor`。Tier 3 仍保留 Sol 完整规划和强制验证；Terra 例外只作为规划与验证证据，不再切换执行器。
+- `sol-luna`（**默认**）：Tier 1 使用 `luna_fast_executor`；Tier 2 和 Tier 3 都使用 `luna_executor`。Tier 3 仍保留 Sol 完整规划和强制验证；Terra 例外只作为规划与验证证据，不再切换执行器。
+- `adaptive`（显式可选）：Tier 1 使用 Luna；Tier 2 以 Luna 为主并保留六类封闭 Terra 例外；Tier 3 在 Sol 完整规划与强制验证之间使用 Terra。
 
-安装器在 `sol-luna-handoff.json` 中持久化唯一执行配置。重新安装可原子切换已识别的受管状态；未知或自定义配置会在写入前停止。为了兼容通用 Skill 安装方式，配置文件缺失时 Skill 按 `adaptive` 处理。
+安装器在 `sol-luna-handoff.json` 中持久化唯一执行配置。重新安装可原子切换已识别的受管状态；未知或自定义配置会在写入前停止。配置文件缺失时 Skill 按 `sol-luna` 处理，因此通用 Skill 安装方式也使用相同的默认路由。
 
 ## 它解决什么问题
 

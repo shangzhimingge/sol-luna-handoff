@@ -614,10 +614,11 @@ function Test-AdaptiveRoutingContracts {
     Assert-True ($globalRule.Contains('select the route')) 'global rule must delegate adaptive route selection'
     Assert-True (-not $globalRule.Contains('Route the work through Sol planning, Luna execution, and Sol verification')) 'global rule must not mandate the fixed pipeline'
     Assert-True ($interfaceMetadata.Contains('Terra/Luna Handoff')) 'interface metadata must name both execution lanes'
-    Assert-True ($interfaceMetadata.Contains('adaptive or Sol-to-Luna execution routing')) 'interface metadata must describe both profiles'
-    Assert-True ($interfaceMetadata.Contains('active execution profile')) 'interface prompt must request profile lookup'
+    Assert-True ($interfaceMetadata.Contains('Default Sol planning with Luna execution')) 'interface metadata must emphasize the default profile'
+    Assert-True ($interfaceMetadata.Contains('adaptive is explicit')) 'interface metadata must identify adaptive as explicit'
+    Assert-True ($interfaceMetadata.Contains('persisted profile')) 'interface prompt must request profile lookup'
     Assert-True ($interfaceMetadata.Contains('minimum necessary Sol planning')) 'interface prompt must request minimum necessary planning'
-    Assert-True ($interfaceMetadata.Contains('adaptive Terra/Luna or Sol-to-Luna semantics')) 'interface prompt must request profile-specific execution'
+    Assert-True ($interfaceMetadata.Contains('adaptive Terra/Luna routing only when adaptive was explicitly selected')) 'interface prompt must request profile-specific execution'
     Assert-True (-not $interfaceMetadata.Contains('Sol planning, Luna execution, and Sol verification')) 'interface metadata must not mandate the fixed pipeline'
 
     $expectedAgents = @(

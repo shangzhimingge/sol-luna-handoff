@@ -91,14 +91,17 @@ test("executor prompts implement the Luna-first boundary", async () => {
   ]);
 });
 
-test("release metadata and migration digests describe v1.5.0", async () => {
+test("release metadata and migration digests describe v1.6.0", async () => {
   const [pkg, readme, chinese, cli, powershell] = await Promise.all([
     read("package.json"), read("README.md"), read("README.zh-CN.md"), read("bin/cli.mjs"),
     read("skill/sol-luna-handoff/scripts/install-agents.ps1"),
   ]);
-  assert.equal(JSON.parse(pkg).version, "1.5.0");
-  includesAll(readme, [/1\.5\.0/, /v1\.5\.0/, /--profile sol-luna/i, /execution profile/i]);
-  includesAll(chinese, [/1\.5\.0/, /v1\.5\.0/, /--profile sol-luna/i, /执行配置/i]);
+  assert.equal(JSON.parse(pkg).version, "1.6.0");
+  includesAll(readme, [/1\.6\.0/, /v1\.6\.0/, /--profile adaptive/i, /execution profile/i]);
+  includesAll(chinese, [/1\.6\.0/, /v1\.6\.0/, /--profile adaptive/i]);
+  includesAll(readme.slice(0, 1600), [/Sol.*plans.*verifies.*Luna.*executes/is, /default/is, /adaptive.*explicit/is]);
+  includesAll(chinese.slice(0, 1600), [/sol-luna/i, /--profile adaptive/i]);
+  assert.doesNotMatch(readme, /adaptive\s*\(default\)/i);
   includesAll(cli, [
     /023d90536d5974e510910bb18fd11834386b5a8365116aa0218e911d1033f304/i,
   ]);
