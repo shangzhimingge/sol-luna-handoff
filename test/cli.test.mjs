@@ -180,7 +180,7 @@ test('no arguments performs a complete install and preserves unrelated global ru
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Installed Sol.*Luna Handoff/u);
   assertInstalled(codexHome);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
   assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Existing rules\n/u);
 });
 
@@ -196,6 +196,16 @@ test('install --profile sol-luna persists the requested profile', (t) => {
     readFileSync(path.join(codexHome, profileConfigName), 'utf8'),
     '{\n  "schemaVersion": 1,\n  "executionProfile": "sol-luna"\n}\n',
   );
+});
+
+test('install --profile adaptive preserves the explicit Terra-capable profile', (t) => {
+  const codexHome = makeCodexHome(t);
+
+  const result = runCli(codexHome, ['install', '--profile', 'adaptive']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assertInstalled(codexHome);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
 });
 
 for (const args of [
@@ -490,20 +500,20 @@ test('doctor is read-only and detects drift', (t) => {
 test('profiles switch atomically and doctor enforces an explicitly requested profile', (t) => {
   const codexHome = makeCodexHome(t);
   assert.equal(runCli(codexHome, ['install']).status, 0);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
-
-  const switched = runCli(codexHome, ['install', '--profile', 'sol-luna']);
-  assert.equal(switched.status, 0, switched.stderr);
   assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
-  assert.equal(runCli(codexHome, ['doctor']).status, 0);
-  assert.equal(runCli(codexHome, ['doctor', '--profile', 'sol-luna']).status, 0);
-  const mismatch = runCli(codexHome, ['doctor', '--profile', 'adaptive']);
-  assert.notEqual(mismatch.status, 0);
-  assert.match(mismatch.stdout, /Profile: sol-luna/);
 
-  const restored = runCli(codexHome, ['install', '--profile', 'adaptive']);
-  assert.equal(restored.status, 0, restored.stderr);
+  const switched = runCli(codexHome, ['install', '--profile', 'adaptive']);
+  assert.equal(switched.status, 0, switched.stderr);
   assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
+  assert.equal(runCli(codexHome, ['doctor']).status, 0);
+  assert.equal(runCli(codexHome, ['doctor', '--profile', 'adaptive']).status, 0);
+  const mismatch = runCli(codexHome, ['doctor', '--profile', 'sol-luna']);
+  assert.notEqual(mismatch.status, 0);
+  assert.match(mismatch.stdout, /Profile: adaptive/);
+
+  const restored = runCli(codexHome, ['install']);
+  assert.equal(restored.status, 0, restored.stderr);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
 });
 
 test('customized profile configuration aborts install and uninstall before mutation', (t) => {
@@ -572,6 +582,8 @@ test('help succeeds and an unknown command is rejected', (t) => {
   const help = runCli(codexHome, ['--help']);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /install\|doctor\|uninstall/);
+  assert.match(help.stdout, /sol-luna.*default/);
+  assert.doesNotMatch(help.stdout, /adaptive.*default/);
 
   const unknown = runCli(codexHome, ['surprise']);
   assert.notEqual(unknown.status, 0);

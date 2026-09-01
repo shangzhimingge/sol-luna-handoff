@@ -90,8 +90,8 @@ Commands:
   uninstall  Remove only exact managed content
 
 Profiles:
-  adaptive   Luna-first Tier 2 with closed Terra exceptions (default)
-  sol-luna   Sol planning and verification with Luna execution
+  sol-luna   Sol planning and verification with Luna execution (default)
+  adaptive   Luna-first Tier 2 with closed Terra exceptions (explicit opt-in)
 
 Environment:
   CODEX_HOME  Target Codex directory (default: ~/.codex)
@@ -120,7 +120,7 @@ function parseArguments(argv) {
     requestedProfile = value;
     index += 1;
   }
-  if (command === 'install' && requestedProfile === undefined) requestedProfile = 'adaptive';
+  if (command === 'install' && requestedProfile === undefined) requestedProfile = 'sol-luna';
   return { command, requestedProfile };
 }
 

@@ -48,7 +48,7 @@ function Invoke-TestInstaller {
         [switch]$WhatIf,
 
         [ValidateSet('adaptive', 'sol-luna')]
-        [string]$Profile = 'adaptive',
+        [string]$Profile = 'sol-luna',
 
         [string]$Fault = ''
     )
@@ -166,7 +166,7 @@ function Test-FreshInstall {
         Assert-True ($globalContent.Contains($endMarker)) 'fresh install must add the managed end marker'
         $profile = [System.IO.File]::ReadAllText((Join-Path $codexHome 'sol-luna-handoff.json')) | ConvertFrom-Json
         Assert-True ($profile.schemaVersion -eq 1) 'fresh install must write profile schema 1'
-        Assert-True ($profile.executionProfile -ceq 'adaptive') 'fresh install must default to adaptive'
+        Assert-True ($profile.executionProfile -ceq 'sol-luna') 'fresh install must default to sol-luna'
         Write-Output 'PASS fresh install copies agents and global block'
     } finally {
         Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
