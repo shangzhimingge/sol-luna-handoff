@@ -1,0 +1,8 @@
+# Default Sol-Luna Profile Implementation Plan
+
+1. **Default installation behavior.** First update `test/cli.test.mjs`, `test/package-e2e.test.mjs`, and `test/install-agents.tests.ps1` and observe the expected failures. Then change the CLI install default, PowerShell `$Profile` default, and help text. Verify and commit as `feat: make Sol-Luna the default install profile`.
+2. **Profileless routing behavior.** First update `test/routing-contract.test.mjs` and observe failure. Then change the canonical Skill preflight missing-config default and OpenAI metadata. Verify and commit as `feat: default profileless routing to Sol-Luna`.
+3. **Standalone release and documentation.** Add failing README/version/routing assertions, update both README files with prominent default-workflow guidance, update package version to 1.6.0, and verify the full npm and PowerShell suites plus the diff. Commit as `docs: emphasize default Sol-Luna workflow`.
+4. **Workflow-pack synchronization.** Mirror the canonical Skill byte-for-byte; update the quota composite Skill, installer, assets, tests, provenance, design documentation, both README files, and package version to 1.4.0. Follow red-green testing, then run `npm test`, CLI smoke tests, and both PowerShell suites. Commit as `feat: sync default Sol-Luna profile`.
+5. **Local synchronization and verification.** Synchronize the released Skill and agents into the local Codex home, retain all six agents, select the new default, run health checks, and obtain mandatory Sol verification.
+6. **Publish.** Push both repositories and verify that each remote default branch matches the corresponding local commit.
