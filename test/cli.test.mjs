@@ -397,6 +397,23 @@ test('an exact v1.4.0 CRLF installation is atomically upgraded', (t) => {
   assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Preserve this rule\r\n/u);
 });
 
+test('an exact v1.5.0 Skill tree is atomically upgraded to the default Sol-Luna profile', (t) => {
+  const legacyCommit = 'f59d7d14de6609000f339f826aef4b3869b98cd1';
+  if (!hasGitCommit(legacyCommit)) {
+    t.skip(`${legacyCommit} is absent in this checkout`);
+    return;
+  }
+  const codexHome = makeCodexHome(t);
+  const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
+  restoreTaggedSkill(legacyCommit, installedSkill);
+
+  const result = runCli(codexHome, ['install']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assertInstalled(codexHome);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
+});
+
 test('malformed managed markers abort before any target is changed', (t) => {
   const codexHome = makeCodexHome(t);
   writeFileSync(path.join(codexHome, 'AGENTS.md'), `${startMarker}\npartial\n`, 'utf8');
