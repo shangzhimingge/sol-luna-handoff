@@ -138,7 +138,7 @@ test("routing reads and emits the persisted execution profile", async () => {
   const skill = await read("skill/sol-luna-handoff/SKILL.md");
   includesAll(skill, [
     /\$CODEX_HOME\/sol-luna-handoff\.json/,
-    /missing configuration.*`adaptive`/is,
+    /missing configuration.*`sol-luna`/is,
     /schemaVersion.*1/is,
     /executionProfile.*`adaptive`.*`sol-luna`/is,
     /Route: Tier N - \{reason\}; Profile: adaptive\|sol-luna; Scout: yes\|no; Planner: none\|compact\|full; Executor: luna\|terra/,
@@ -166,5 +166,5 @@ test("sol-luna keeps Sol planning and routes every tier to Luna", async () => {
     /do not request a Terra handoff/i,
     /binding decision.*Sol planning or verification/is,
   ]);
-  includesAll(metadata, [/adaptive/i, /Sol.*Luna/i]);
+  includesAll(metadata, [/default.*Sol.*Luna/is, /adaptive.*explicit/is]);
 });
