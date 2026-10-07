@@ -11,7 +11,6 @@ $agentFiles = @(
     'sol-planner.toml',
     'sol-compact-planner.toml',
     'luna-scout.toml',
-    'terra-executor.toml',
     'luna-executor.toml',
     'luna-fast-executor.toml'
 )
@@ -47,9 +46,6 @@ function Invoke-TestInstaller {
 
         [switch]$WhatIf,
 
-        [ValidateSet('adaptive', 'sol-luna')]
-        [string]$Profile = 'sol-luna',
-
         [string]$Fault = ''
     )
 
@@ -64,7 +60,7 @@ function Invoke-TestInstaller {
         } else {
             Remove-Item Env:SOL_LUNA_HANDOFF_TEST_FAULT -ErrorAction SilentlyContinue
         }
-        & $installerPath -Profile $Profile -WhatIf:$WhatIf | Out-Null
+        & $installerPath -WhatIf:$WhatIf | Out-Null
     } finally {
         if ($hadCodexHome) {
             $env:CODEX_HOME = $previousCodexHome
@@ -173,18 +169,20 @@ function Test-FreshInstall {
     }
 }
 
-function Test-SolLunaProfileSwitch {
+function Test-LegacyConfigMigration {
     $codexHome = New-TemporaryCodexHome
     try {
-        Invoke-TestInstaller $codexHome -Profile 'sol-luna'
         $profilePath = Join-Path $codexHome 'sol-luna-handoff.json'
+        [System.IO.File]::WriteAllText(
+            $profilePath,
+            "{`n  `"schemaVersion`": 1,`n  `"executionProfile`": `"adaptive`"`n}`n",
+            $utf8NoBom
+        )
+        Invoke-TestInstaller $codexHome
         $profile = [System.IO.File]::ReadAllText($profilePath) | ConvertFrom-Json
-        Assert-True ($profile.executionProfile -ceq 'sol-luna') 'selected sol-luna profile must be persisted'
-
-        Invoke-TestInstaller $codexHome -Profile 'adaptive'
-        $profile = [System.IO.File]::ReadAllText($profilePath) | ConvertFrom-Json
-        Assert-True ($profile.executionProfile -ceq 'adaptive') 'recognized profile must switch atomically'
-        Write-Output 'PASS PowerShell installer switches the managed execution profile'
+        Assert-True ($profile.schemaVersion -eq 2) 'legacy config must migrate to schema 2'
+        Assert-True ($profile.workflow -ceq 'sol-luna') 'legacy config must migrate to Sol-Luna workflow'
+        Write-Output 'PASS PowerShell installer migrates legacy configuration'
     } finally {
         Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -198,7 +196,7 @@ function Test-ProfileDirectoryCollisionAbortsBeforeMutation {
         $before = Get-DirectoryState $codexHome
         $caughtMessage = $null
         try {
-            Invoke-TestInstaller $codexHome -Profile 'sol-luna'
+            Invoke-TestInstaller $codexHome
         } catch {
             $caughtMessage = $_.Exception.Message
         }
@@ -228,13 +226,13 @@ function Test-PostWriteFailureRestoresExactSnapshot {
         $before = Get-DirectoryState $codexHome
         $caughtMessage = $null
         try {
-            Invoke-TestInstaller $codexHome -Profile 'sol-luna' -Fault 'after-profile-write'
+            Invoke-TestInstaller $codexHome -Fault 'after-config-write'
         } catch {
             $caughtMessage = $_.Exception.Message
         }
 
         Assert-True ($null -ne $caughtMessage) 'an injected post-write failure must abort installation'
-        Assert-True ($caughtMessage.Contains('after-profile-write')) 'the injected failure must identify its point'
+        Assert-True ($caughtMessage.Contains('after-config-write')) 'the injected failure must identify its point'
         Assert-True ((Get-DirectoryState $codexHome) -ceq $before) 'rollback must restore exact file hashes and timestamps'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $codexHome 'agents'))) 'rollback must remove a newly created agents directory'
         Write-Output 'PASS injected post-write failure restores the exact snapshot'
@@ -666,7 +664,7 @@ function Test-AdaptiveRoutingContracts {
 
 Test-DifferingAgentCollisions
 Test-FreshInstall
-Test-SolLunaProfileSwitch
+Test-LegacyConfigMigration
 Test-ProfileDirectoryCollisionAbortsBeforeMutation
 Test-PostWriteFailureRestoresExactSnapshot
 Test-AdaptiveRoutingContracts

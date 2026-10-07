@@ -217,13 +217,13 @@ for (const args of [
   test(`invalid profile arguments ${args.join(' ')} fail before mutation`, (t) => {
     const codexHome = makeCodexHome(t);
     writeFileSync(path.join(codexHome, 'keep.txt'), 'preserve\n', 'utf8');
-    const before = snapshot(codexHome);
+    const before = contentSnapshot(codexHome);
 
     const result = runCli(codexHome, args);
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /profile|Unexpected arguments/i);
-    assert.deepEqual(snapshot(codexHome), before);
+    assert.deepEqual(contentSnapshot(codexHome), before);
   });
 }
 
@@ -664,7 +664,7 @@ for (const fault of ['after-legacy-agent-removal', 'after-config-write']) {
     writeFileSync(config, '{\n  "schemaVersion": 1,\n  "executionProfile": "adaptive"\n}\n', 'utf8');
     mkdirSync(path.dirname(retiredTerra), { recursive: true });
     copyFileSync(path.join(assets, 'terra-executor.toml'), retiredTerra);
-    const before = snapshot(codexHome);
+    const before = contentSnapshot(codexHome);
 
     const result = runCli(codexHome, ['install'], {
       NODE_ENV: 'test',
@@ -673,7 +673,7 @@ for (const fault of ['after-legacy-agent-removal', 'after-config-write']) {
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, new RegExp(fault));
-    assert.deepEqual(snapshot(codexHome), before);
+    assert.deepEqual(contentSnapshot(codexHome), before);
   });
 }
 

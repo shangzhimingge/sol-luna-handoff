@@ -1,8 +1,5 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
-param(
-    [ValidateSet('adaptive', 'sol-luna')]
-    [string]$Profile = 'sol-luna'
-)
+param()
 
 $ErrorActionPreference = 'Stop'
 
@@ -21,7 +18,6 @@ $agentFiles = @(
     'sol-planner.toml',
     'sol-compact-planner.toml',
     'luna-scout.toml',
-    'terra-executor.toml',
     'luna-executor.toml',
     'luna-fast-executor.toml'
 )
@@ -54,21 +50,23 @@ $knownLegacyAgentHashes = @{
         '5400B0F6F9EE8CAAD4678779A6FB89F99C59835669BF579DD0A70F1F05BF9393',
         '099C58C9F0AF4B6B2A0F923782E0953BB798FB8AA48ED29EDF7E2550EAA3F5A6'
     )
-    'terra-executor.toml' = @(
-        'A347C7596F1794A6B91B8E55A4B6C2B411B282E07288E9A5955C18933D7EAD26',
-        '721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC',
-        '71EAC578F0925EB11C358E2AD1C65A69BD784966A16A798DFBD05A71F97F87D3',
-        '49BAA5F4707F6F97117A106BC6380E63CD71D4A5EE79DE4257B9F0742D18C16A'
-    )
 }
+$retiredTerraFile = 'terra-executor.toml'
+$retiredTerraHashes = @(
+    'A347C7596F1794A6B91B8E55A4B6C2B411B282E07288E9A5955C18933D7EAD26',
+    '721B9C4A60F66A729B409792FC6BF173678D7F62DEF82B36CA1123CC247515AC',
+    '71EAC578F0925EB11C358E2AD1C65A69BD784966A16A798DFBD05A71F97F87D3',
+    '49BAA5F4707F6F97117A106BC6380E63CD71D4A5EE79DE4257B9F0742D18C16A'
+)
 $managedBlockPath = [System.IO.Path]::GetFullPath((Join-Path $sourceDirectory 'global-agents.md'))
 $startMarker = '<!-- BEGIN SOL-LUNA-HANDOFF MANAGED BLOCK -->'
 $endMarker = '<!-- END SOL-LUNA-HANDOFF MANAGED BLOCK -->'
 $utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-$profileConfigText = "{`n  `"schemaVersion`": 1,`n  `"executionProfile`": `"$Profile`"`n}`n"
+$profileConfigText = "{`n  `"schemaVersion`": 2,`n  `"workflow`": `"sol-luna`"`n}`n"
 $profileConfigBytes = $utf8NoBom.GetBytes($profileConfigText)
 $recognizedProfileConfigs = @(
+    $profileConfigText,
     "{`n  `"schemaVersion`": 1,`n  `"executionProfile`": `"adaptive`"`n}`n",
     "{`n  `"schemaVersion`": 1,`n  `"executionProfile`": `"sol-luna`"`n}`n"
 )
@@ -227,6 +225,21 @@ if ($null -ne $existingProfileConfigBytes) {
     }
 }
 
+$retiredTerraPath = [System.IO.Path]::GetFullPath((Join-Path $agentsDirectory $retiredTerraFile))
+$retiredTerraExists = Test-Path -LiteralPath $retiredTerraPath
+$retiredTerraNeedsRemoval = $false
+if ($retiredTerraExists) {
+    $retiredTerraEntry = Get-Item -LiteralPath $retiredTerraPath -Force
+    if (-not (Test-RegularFileEntry -Entry $retiredTerraEntry)) {
+        throw "Retired-agent collision: destination is not a regular file: $retiredTerraPath"
+    }
+    $retiredTerraHash = Get-Sha256Hex -Bytes ([System.IO.File]::ReadAllBytes($retiredTerraPath))
+    if ($retiredTerraHashes -notcontains $retiredTerraHash) {
+        throw "Retired-agent collision: destination contains custom content: $retiredTerraPath"
+    }
+    $retiredTerraNeedsRemoval = $true
+}
+
 # Preflight every custom-agent destination before making any filesystem changes.
 $agentInstallPlans = foreach ($fileName in $agentFiles) {
     $sourcePath = [System.IO.Path]::GetFullPath((Join-Path $sourceDirectory $fileName))
@@ -325,6 +338,7 @@ $agentSnapshots = @{}
 foreach ($plan in $agentInstallPlans) {
     $agentSnapshots[$plan.DestinationPath] = Get-FileSnapshot -Path $plan.DestinationPath
 }
+$retiredTerraSnapshot = Get-FileSnapshot -Path $retiredTerraPath
 $globalSnapshot = Get-FileSnapshot -Path $globalAgentsPath
 $profileSnapshot = Get-FileSnapshot -Path $profileConfigPath
 
@@ -343,6 +357,12 @@ try {
     }
     Invoke-TestFault -Point 'after-agent-writes'
 
+    if ($retiredTerraNeedsRemoval -and
+        $PSCmdlet.ShouldProcess($retiredTerraPath, 'Remove retired managed Terra agent')) {
+        Remove-Item -LiteralPath $retiredTerraPath -Force
+    }
+    Invoke-TestFault -Point 'after-legacy-agent-removal'
+
     if ($updatedGlobalAgents -cne $existingGlobalAgents -and
         $PSCmdlet.ShouldProcess($globalAgentsPath, "Install managed global rule from $managedBlockPath")) {
         Write-BytesAtomically -Path $globalAgentsPath -Bytes ($utf8NoBom.GetBytes($updatedGlobalAgents))
@@ -351,10 +371,10 @@ try {
 
     if (($null -eq $existingProfileConfigBytes -or
         -not (Test-ByteArrayEqual -Left $existingProfileConfigBytes -Right $profileConfigBytes)) -and
-        $PSCmdlet.ShouldProcess($profileConfigPath, "Install $Profile execution profile")) {
+        $PSCmdlet.ShouldProcess($profileConfigPath, 'Install Sol-Luna workflow configuration')) {
         Write-BytesAtomically -Path $profileConfigPath -Bytes $profileConfigBytes
     }
-    Invoke-TestFault -Point 'after-profile-write'
+    Invoke-TestFault -Point 'after-config-write'
 } catch {
     $installationError = $_
     try {
@@ -363,6 +383,7 @@ try {
         foreach ($plan in $agentInstallPlans) {
             Restore-FileSnapshot -Snapshot $agentSnapshots[$plan.DestinationPath]
         }
+        Restore-FileSnapshot -Snapshot $retiredTerraSnapshot
         if (-not $agentsDirectoryExisted -and
             [System.IO.Directory]::Exists($agentsDirectory) -and
             [System.IO.Directory]::GetFileSystemEntries($agentsDirectory).Count -eq 0) {
