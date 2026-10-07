@@ -25,7 +25,6 @@ const agentFiles = [
   'sol-planner.toml',
   'sol-compact-planner.toml',
   'luna-scout.toml',
-  'terra-executor.toml',
   'luna-executor.toml',
   'luna-fast-executor.toml',
 ];
@@ -180,32 +179,8 @@ test('no arguments performs a complete install and preserves unrelated global ru
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Installed Sol.*Luna Handoff/u);
   assertInstalled(codexHome);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 2, workflow: 'sol-luna' });
   assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Existing rules\n/u);
-});
-
-test('install --profile sol-luna persists the requested profile', (t) => {
-  const codexHome = makeCodexHome(t);
-
-  const result = runCli(codexHome, ['install', '--profile', 'sol-luna']);
-
-  assert.equal(result.status, 0, result.stderr);
-  assertInstalled(codexHome);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
-  assert.equal(
-    readFileSync(path.join(codexHome, profileConfigName), 'utf8'),
-    '{\n  "schemaVersion": 1,\n  "executionProfile": "sol-luna"\n}\n',
-  );
-});
-
-test('install --profile adaptive preserves the explicit Terra-capable profile', (t) => {
-  const codexHome = makeCodexHome(t);
-
-  const result = runCli(codexHome, ['install', '--profile', 'adaptive']);
-
-  assert.equal(result.status, 0, result.stderr);
-  assertInstalled(codexHome);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
 });
 
 for (const args of [
@@ -225,6 +200,10 @@ for (const args of [
     assert.match(result.stderr, /profile|Unexpected arguments/i);
     assert.deepEqual(contentSnapshot(codexHome), before);
   });
+}
+
+function restoreManagedTerra(destination) {
+  restoreTaggedFile('f59d7d14de6609000f339f826aef4b3869b98cd1', 'skill/sol-luna-handoff/assets/terra-executor.toml', destination);
 }
 
 function hasGitCommit(revision) {
@@ -258,7 +237,7 @@ test('agent collision aborts before any target is changed', (t) => {
   const result = runCli(codexHome, ['install']);
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Custom-agent collision.*terra-executor\.toml/s);
+  assert.match(result.stderr, /Retired-agent collision.*terra-executor\.toml/s);
   assert.deepEqual(snapshot(codexHome), before);
 });
 
@@ -301,7 +280,7 @@ test('an agent target that is a directory fails closed without touching other ta
   const result = runCli(codexHome, ['install']);
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Custom-agent collision.*terra-executor\.toml/s);
+  assert.match(result.stderr, /Retired-agent collision.*terra-executor\.toml/s);
   assert.deepEqual(snapshot(codexHome), before);
 });
 
@@ -339,6 +318,9 @@ for (const fixture of [
       writeFileSync(restoredAgent, lfContent.replace(/\n/gu, fixture.newline), 'utf8');
     }
     const legacyTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
+    restoreTaggedFile('v1.3.1', 'skill/sol-luna-handoff/assets/terra-executor.toml', legacyTerra);
+    const terraContent = readFileSync(legacyTerra, 'utf8').replace(/\r\n?/gu, '\n');
+    writeFileSync(legacyTerra, terraContent.replace(/\n/gu, fixture.newline), 'utf8');
     assert.equal(hashFile(legacyTerra).toUpperCase(), fixture.terraHash);
     const unrelatedRules = '# Keep this user rule\n\n';
     writeFileSync(path.join(codexHome, 'AGENTS.md'), unrelatedRules, 'utf8');
@@ -354,13 +336,14 @@ for (const fixture of [
         `Agent differs after newline normalization: ${fileName}`,
       );
     }
-    for (const fileName of ['luna-executor.toml', 'terra-executor.toml']) {
+    for (const fileName of ['luna-executor.toml']) {
       assert.equal(
         hashFile(path.join(codexHome, 'agents', fileName)),
         hashFile(path.join(assets, fileName)),
         `Changed agent is not canonical: ${fileName}`,
       );
     }
+    assert.equal(existsSync(legacyTerra), false);
     assertManagedGlobalInstalled(codexHome);
     assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Keep this user rule\n\n/u);
   });
@@ -387,13 +370,14 @@ test('an exact v1.4.0 CRLF installation is atomically upgraded', (t) => {
     const content = readFileSync(target, 'utf8').replace(/\r\n?|\n/gu, '\n');
     writeFileSync(target, content.replace(/\n/gu, '\r\n'), 'utf8');
   }
+  restoreTaggedFile(legacyCommit, 'skill/sol-luna-handoff/assets/terra-executor.toml', path.join(codexHome, 'agents', 'terra-executor.toml'));
   writeFileSync(path.join(codexHome, 'AGENTS.md'), '# Preserve this rule\r\n', 'utf8');
 
-  const result = runCli(codexHome, ['install', '--profile', 'sol-luna']);
+  const result = runCli(codexHome, ['install']);
 
   assert.equal(result.status, 0, result.stderr);
   assertInstalled(codexHome);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 2, workflow: 'sol-luna' });
   assert.match(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), /^# Preserve this rule\r\n/u);
 });
 
@@ -411,7 +395,7 @@ test('an exact v1.5.0 Skill tree is atomically upgraded to the default Sol-Luna 
 
   assert.equal(result.status, 0, result.stderr);
   assertInstalled(codexHome);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 2, workflow: 'sol-luna' });
 });
 
 test('malformed managed markers abort before any target is changed', (t) => {
@@ -514,52 +498,44 @@ test('doctor is read-only and detects drift', (t) => {
   assert.deepEqual(snapshot(codexHome), before);
 });
 
-test('profiles switch atomically and doctor enforces an explicitly requested profile', (t) => {
+test('doctor requires the exact v2 workflow configuration', (t) => {
   const codexHome = makeCodexHome(t);
   assert.equal(runCli(codexHome, ['install']).status, 0);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
-
-  const switched = runCli(codexHome, ['install', '--profile', 'adaptive']);
-  assert.equal(switched.status, 0, switched.stderr);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'adaptive' });
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 2, workflow: 'sol-luna' });
   assert.equal(runCli(codexHome, ['doctor']).status, 0);
-  assert.equal(runCli(codexHome, ['doctor', '--profile', 'adaptive']).status, 0);
-  const mismatch = runCli(codexHome, ['doctor', '--profile', 'sol-luna']);
-  assert.notEqual(mismatch.status, 0);
-  assert.match(mismatch.stdout, /Profile: adaptive/);
-
-  const restored = runCli(codexHome, ['install']);
-  assert.equal(restored.status, 0, restored.stderr);
-  assert.deepEqual(readProfile(codexHome), { schemaVersion: 1, executionProfile: 'sol-luna' });
+  writeFileSync(path.join(codexHome, profileConfigName), '{\n  "schemaVersion": 1,\n  "executionProfile": "sol-luna"\n}\n', 'utf8');
+  const legacy = runCli(codexHome, ['doctor']);
+  assert.notEqual(legacy.status, 0);
+  assert.match(legacy.stdout, /Workflow config: legacy/);
 });
 
-test('customized profile configuration aborts install and uninstall before mutation', (t) => {
+test('customized workflow configuration aborts install and uninstall before mutation', (t) => {
   const codexHome = makeCodexHome(t);
   assert.equal(runCli(codexHome, ['install']).status, 0);
   const configPath = path.join(codexHome, profileConfigName);
   writeFileSync(configPath, '{"schemaVersion":1,"executionProfile":"adaptive"}\n', 'utf8');
   const before = snapshot(codexHome);
 
-  for (const args of [['install', '--profile', 'sol-luna'], ['uninstall']]) {
+  for (const args of [['install'], ['uninstall']]) {
     const result = runCli(codexHome, args);
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /profile configuration|customized/i);
+    assert.match(result.stderr, /workflow configuration|customized/i);
     assert.deepEqual(snapshot(codexHome), before);
   }
 });
 
-test('a failure after the profile write restores the previous profile exactly', (t) => {
+test('a failure after the config write restores the exact legacy config', (t) => {
   const codexHome = makeCodexHome(t);
-  assert.equal(runCli(codexHome, ['install', '--profile', 'adaptive']).status, 0);
+  writeFileSync(path.join(codexHome, profileConfigName), '{\n  "schemaVersion": 1,\n  "executionProfile": "adaptive"\n}\n', 'utf8');
   const before = contentSnapshot(codexHome);
 
-  const result = runCli(codexHome, ['install', '--profile', 'sol-luna'], {
+  const result = runCli(codexHome, ['install'], {
     NODE_ENV: 'test',
-    SOL_LUNA_HANDOFF_TEST_FAULT: 'after-profile-write',
+    SOL_LUNA_HANDOFF_TEST_FAULT: 'after-config-write',
   });
 
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Injected test fault: after-profile-write/);
+  assert.match(result.stderr, /Injected test fault: after-config-write/);
   assert.deepEqual(contentSnapshot(codexHome), before);
 });
 
@@ -599,8 +575,8 @@ test('help succeeds and an unknown command is rejected', (t) => {
   const help = runCli(codexHome, ['--help']);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /install\|doctor\|uninstall/);
-  assert.match(help.stdout, /sol-luna.*default/);
-  assert.doesNotMatch(help.stdout, /adaptive.*default/);
+  assert.match(help.stdout, /Sol.*Luna Handoff installer/);
+  assert.doesNotMatch(help.stdout, /--profile|Profiles:/);
 
   const unknown = runCli(codexHome, ['surprise']);
   assert.notEqual(unknown.status, 0);
@@ -647,7 +623,7 @@ test('install removes an exact managed Terra agent while preserving five active 
   const codexHome = makeCodexHome(t);
   const retiredTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
   mkdirSync(path.dirname(retiredTerra), { recursive: true });
-  copyFileSync(path.join(assets, 'terra-executor.toml'), retiredTerra);
+  restoreManagedTerra(retiredTerra);
 
   const result = runCli(codexHome, ['install']);
 
@@ -663,7 +639,7 @@ for (const fault of ['after-legacy-agent-removal', 'after-config-write']) {
     const retiredTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
     writeFileSync(config, '{\n  "schemaVersion": 1,\n  "executionProfile": "adaptive"\n}\n', 'utf8');
     mkdirSync(path.dirname(retiredTerra), { recursive: true });
-    copyFileSync(path.join(assets, 'terra-executor.toml'), retiredTerra);
+    restoreManagedTerra(retiredTerra);
     const before = contentSnapshot(codexHome);
 
     const result = runCli(codexHome, ['install'], {
@@ -694,7 +670,7 @@ test('uninstall removes exact legacy config and managed Terra residue', (t) => {
   const retiredTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
   writeFileSync(config, '{\n  "schemaVersion": 1,\n  "executionProfile": "sol-luna"\n}\n', 'utf8');
   mkdirSync(path.dirname(retiredTerra), { recursive: true });
-  copyFileSync(path.join(assets, 'terra-executor.toml'), retiredTerra);
+  restoreManagedTerra(retiredTerra);
 
   const result = runCli(codexHome, ['uninstall']);
 

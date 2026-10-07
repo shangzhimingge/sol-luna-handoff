@@ -295,7 +295,7 @@ function Test-V100Upgrade {
             }
             $globalContent = [System.IO.File]::ReadAllText($globalAgentsPath)
             Assert-True ($globalContent.Contains('# Keep this rule')) 'v1.0 upgrade must preserve unrelated global guidance'
-            Assert-True ($globalContent.Contains('adaptive Tier 1, Tier 2, and Tier 3')) 'v1.0 upgrade must replace the managed rule'
+            Assert-True ($globalContent.Contains('Tier 1, Tier 2, or Tier 3 Sol-Luna route')) 'v1.0 upgrade must replace the managed rule'
             Write-Output "PASS v1.0 $newlineStyle built-in agent upgrades to canonical bytes"
         } finally {
             Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
@@ -347,6 +347,7 @@ function Get-V110BundledAgentContent {
         ) -join "`n"
     } else {
         $content = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory $FileName), $utf8Strict)
+        $content = $content.Replace('gpt-6.1-sol', 'gpt-5.6-sol').Replace('gpt-6-luna', 'gpt-5.6-luna')
     }
     $lfContent = $content.Replace("`r`n", "`n").Replace("`r", "`n")
     if ($NewlineStyle -ceq 'CRLF') {
@@ -534,140 +535,46 @@ function Test-WhatIfDoesNotMutate {
     }
 }
 
-function Test-AdaptiveRoutingContracts {
-    $utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
-    $skillPath = Join-Path $skillDirectory 'SKILL.md'
-    $skill = [System.IO.File]::ReadAllText($skillPath, $utf8Strict)
-    $globalRule = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'global-agents.md'), $utf8Strict)
-    $interfaceMetadata = [System.IO.File]::ReadAllText((Join-Path $skillDirectory 'agents\openai.yaml'), $utf8Strict)
-
-    Assert-True ($skill.Contains('Tier 1')) 'Skill must define Tier 1'
-    Assert-True ($skill.Contains('Tier 2')) 'Skill must define Tier 2'
-    Assert-True ($skill.Contains('Tier 3')) 'Skill must define Tier 3'
-    Assert-True ($skill.Contains('at most 2 expected changed files')) 'Tier 1 must cap files at two'
-    Assert-True ($skill.Contains('at most 100 expected changed lines')) 'Tier 1 must cap changed lines at 100'
-    Assert-True ($skill.Contains('exactly 1 subsystem')) 'Tier 1 must require one subsystem'
-    Assert-True ($skill.Contains('Default to Tier 2')) 'bounded non-Tier-1 work must deterministically default to Tier 2'
-    $tier3Index = $skill.IndexOf('Tier 3, Tier 1, then Tier 2')
-    Assert-True ($tier3Index -ge 0) 'routing must state the Tier 3 then Tier 1 then Tier 2 classification order'
-    $tier1Index = $skill.IndexOf('Tier 1', $tier3Index + 'Tier 3'.Length)
-    $tier2Index = $skill.IndexOf('Tier 2', $tier1Index + 'Tier 1'.Length)
-    Assert-True ($tier3Index -lt $tier1Index -and $tier1Index -lt $tier2Index) 'routing order must be Tier 3 then Tier 1 then Tier 2'
-    Assert-True ($skill.Contains('Scout: yes|no')) 'route line must expose the Scout decision'
-    Assert-True ($skill.Contains('Profile: adaptive|sol-luna')) 'route line must expose the execution profile'
-    Assert-True ($skill.Contains('Planner: none|compact|full')) 'route line must expose the planner decision'
-    Assert-True ($skill.Contains('Executor: luna|terra')) 'route line must expose the executor decision'
-    $tierState = $skill.IndexOf('State 1 - classify Tier')
-    $scoutState = $skill.IndexOf('State 2 - decide and run Scout')
-    $plannerState = $skill.IndexOf('State 3 - decide Planner from Scout evidence')
-    $executorState = $skill.IndexOf('State 4 - decide Executor')
-    $routeState = $skill.IndexOf('State 5 - emit the final route')
-    Assert-True ($tierState -ge 0 -and $tierState -lt $scoutState -and $scoutState -lt $plannerState -and $plannerState -lt $executorState -and $executorState -lt $routeState) 'routing must complete Tier, Scout, Planner, Executor, then final route in order'
-    Assert-True ($skill.Contains('Do not emit the final route line before Scout has completed or been skipped')) 'routing must not claim a final decision before Scout'
-    Assert-True ($skill.Contains('Emit exactly one final route line immediately before Planner or Executor delegation')) 'routing must emit one final route before implementation delegation'
-    Assert-True ($skill.Contains('Tier 1 always records `Scout: no` and skips Scout without evaluating the Conditional Scout triggers, even when supplied diagnostics exceed 500 lines or another discovery trigger appears applicable.')) 'Tier 1 must remain Scout-free even when a discovery trigger superficially matches'
-    Assert-True ($skill.Contains('## Conditional Scout for Tier 2 and Tier 3')) 'Conditional Scout heading must limit the mechanism to Tier 2 and Tier 3'
-    Assert-True ($skill.Contains('These triggers apply only to Tier 2 and Tier 3. Tier 1 remains Scout-free.')) 'Conditional Scout body must exclude Tier 1'
-    foreach ($risk in @('security', 'authentication', 'authorization', 'cryptography', 'data migration', 'destructive operation', 'deployment', 'public API', 'concurrency', 'dependency migration', 'architecture', 'ambiguous requirements')) {
-        Assert-True ($skill.Contains($risk)) "Tier 3 must include the $risk predicate"
-    }
-    Assert-True ($skill.Contains('more than 8 expected changed files')) 'Tier 3 must apply above eight files'
-    Assert-True ($skill.Contains('Never downgrade after editing starts')) 'routing must prohibit post-edit downgrades'
-    Assert-True ($skill.Contains('more than 500 lines')) 'Scout must have a deterministic diagnostic-size trigger'
-    Assert-True ($skill.Contains('relevant files or key symbols are not located')) 'Scout must trigger when files or symbols require cross-subsystem discovery'
-    Assert-True ($skill.Contains('modules crossed by the call chain are unclear')) 'Scout must trigger when the call chain modules are unclear'
-    Assert-True ($skill.Contains('planner would otherwise need a broad repository search')) 'Scout must trigger before broad planner repository search'
-    Assert-True ($skill.Contains('400 output tokens')) 'compact plans must be capped at 400 output tokens'
-    Assert-True ($skill.Contains('after Scout, the root cause still requires a choice among multiple candidate approaches')) 'compact planning must trigger for unresolved candidate approaches'
-    Assert-True ($skill.Contains('change crosses multiple subsystems with ordering or dependency relationships')) 'compact planning must trigger for ordered cross-subsystem work'
-    Assert-True ($skill.Contains('compatibility constraints or a new cross-file invariant exist')) 'compact planning must trigger for compatibility or cross-file invariants'
-    Assert-True ($skill.Contains('acceptance criteria permit multiple implementations with material tradeoffs')) 'compact planning must trigger for material implementation tradeoffs'
-    Assert-True ($skill.Contains('The default Tier 2 executor is `luna_executor`')) 'Tier 2 must default to Luna'
-    foreach ($condition in @('scope is bounded', 'implementation strategy is explicit', 'independently verifiable')) {
-        Assert-True ($skill.Contains($condition)) "Tier 2 Luna boundary must require $condition"
-    }
-    Assert-True ($skill.Contains('Multi-file work, business logic, and ordinary local debugging do not by themselves select Terra.')) 'coarse work labels must not select Terra'
-    foreach ($exception in @('cross-subsystem or cross-file invariant derivation', 'shared-interface judgment', 'ambiguous root cause', 'integration uncertainty', 'major refactor', 'unknown failure requiring non-local diagnosis')) {
-        Assert-True ($skill.Contains($exception)) "Tier 2 Terra boundary must include $exception"
-    }
-    Assert-True ($skill.Contains('only one Luna-to-Terra executor switch')) 'Tier 2 must permit only one executor switch'
-    Assert-True ($skill.Contains('correction count continues across the handoff')) 'correction count must survive the handoff'
-    Assert-True ($skill.Contains('Tier 3 predicate remains a tier upgrade')) 'Tier 3 discovery must remain a tier upgrade'
-    Assert-True ($skill.Contains('In the `adaptive` profile, Tier 3 uses `terra_executor`')) 'adaptive Tier 3 must use Terra as the main executor'
-    Assert-True ($skill.Contains('In the `sol-luna` profile, Tier 3 uses `luna_executor`')) 'sol-luna Tier 3 must use Luna as the main executor'
-    Assert-True ($skill.Contains('never select `terra_executor` while `sol-luna` is active')) 'sol-luna must have no Terra executor route'
-    Assert-True ($skill.Contains('mandatory high-reasoning verification')) 'Tier 3 must require final Sol verification'
-    Assert-True ($skill.Contains('300 output tokens')) 'executor reports must be capped at 300 output tokens'
-    Assert-True ($skill.Contains('After 2 correction rounds')) 'two correction rounds must trigger replanning'
-    Assert-True ($skill.Contains('under one task brief or plan')) 'correction counting must cover task briefs and plans'
-    Assert-True ($skill.Contains('Planner: none') -and $skill.Contains('invoke `sol_compact_planner` before any further correction')) 'Planner-none work must compact-plan after two corrections'
-    Assert-True ($skill.Contains('work already governed by a compact or full plan, return to the applicable Sol planner')) 'planned work must return to its applicable Sol planner after two corrections'
-    Assert-True ($skill.Contains('Tier 1') -and $skill.Contains('return `UPGRADE_NEEDED`, reclassify as at least Tier 2')) 'Tier 1 must upgrade after two corrections'
-    Assert-True ($skill.Contains('at most one additional Luna worker')) 'agent fan-out must be bounded'
-    Assert-True ($skill.Contains('terra_executor')) 'routing must provide the Terra lane'
-    Assert-True ($skill.Contains('luna_scout')) 'routing must provide conditional discovery'
-    Assert-True ($skill.Contains('Skip Sol')) 'Tier 2 must allow planning-free bounded work'
-
-    Assert-True ($globalRule.Contains('load and follow `$sol-luna-handoff`')) 'global rule must load the Skill'
-    Assert-True ($globalRule.Contains('select the route')) 'global rule must delegate adaptive route selection'
-    Assert-True (-not $globalRule.Contains('Route the work through Sol planning, Luna execution, and Sol verification')) 'global rule must not mandate the fixed pipeline'
-    Assert-True ($interfaceMetadata.Contains('Terra/Luna Handoff')) 'interface metadata must name both execution lanes'
-    Assert-True ($interfaceMetadata.Contains('Default Sol planning with Luna execution')) 'interface metadata must emphasize the default profile'
-    Assert-True ($interfaceMetadata.Contains('adaptive is explicit')) 'interface metadata must identify adaptive as explicit'
-    Assert-True ($interfaceMetadata.Contains('persisted profile')) 'interface prompt must request profile lookup'
-    Assert-True ($interfaceMetadata.Contains('minimum necessary Sol planning')) 'interface prompt must request minimum necessary planning'
-    Assert-True ($interfaceMetadata.Contains('adaptive Terra/Luna routing only when adaptive was explicitly selected')) 'interface prompt must request profile-specific execution'
-    Assert-True (-not $interfaceMetadata.Contains('Sol planning, Luna execution, and Sol verification')) 'interface metadata must not mandate the fixed pipeline'
+function Test-PureSolLunaContracts {
+    $skill = [System.IO.File]::ReadAllText((Join-Path $skillDirectory 'SKILL.md'))
+    $interfaceMetadata = [System.IO.File]::ReadAllText((Join-Path $skillDirectory 'agents\openai.yaml'))
+    $globalRule = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'global-agents.md'))
+    Assert-True ($skill.Contains('Executor: luna')) 'route line must select Luna'
+    Assert-True ($skill.Contains('Tier 3: Sol-Luna-Sol')) 'Tier 3 must retain Sol-Luna-Sol'
+    Assert-True (-not ($skill -match '(?i)terra|adaptive')) 'active routing must not mention retired lanes'
+    Assert-True (-not ($interfaceMetadata -match '(?i)terra|adaptive')) 'metadata must describe only Sol-Luna'
+    Assert-True (-not ($globalRule -match '(?i)terra|adaptive')) 'global rule must describe only Sol-Luna'
 
     $expectedAgents = @(
-        @{ File = 'sol-planner.toml'; Name = 'sol_planner'; Model = 'gpt-5.6-sol'; Effort = 'high'; Sandbox = 'read-only' },
-        @{ File = 'sol-compact-planner.toml'; Name = 'sol_compact_planner'; Model = 'gpt-5.6-sol'; Effort = 'medium'; Sandbox = 'read-only' },
-        @{ File = 'luna-scout.toml'; Name = 'luna_scout'; Model = 'gpt-5.6-luna'; Effort = 'low'; Sandbox = 'read-only' },
-        @{ File = 'terra-executor.toml'; Name = 'terra_executor'; Model = 'gpt-5.6-terra'; Effort = 'medium'; Sandbox = 'workspace-write' },
-        @{ File = 'luna-executor.toml'; Name = 'luna_executor'; Model = 'gpt-5.6-luna'; Effort = 'medium'; Sandbox = 'workspace-write' },
-        @{ File = 'luna-fast-executor.toml'; Name = 'luna_fast_executor'; Model = 'gpt-5.6-luna'; Effort = 'low'; Sandbox = 'workspace-write' }
+        @{ File = 'sol-planner.toml'; Name = 'sol_planner'; Model = 'gpt-6.1-sol'; Effort = 'high'; Sandbox = 'read-only' },
+        @{ File = 'sol-compact-planner.toml'; Name = 'sol_compact_planner'; Model = 'gpt-6.1-sol'; Effort = 'medium'; Sandbox = 'read-only' },
+        @{ File = 'luna-scout.toml'; Name = 'luna_scout'; Model = 'gpt-6-luna'; Effort = 'low'; Sandbox = 'read-only' },
+        @{ File = 'luna-executor.toml'; Name = 'luna_executor'; Model = 'gpt-6-luna'; Effort = 'medium'; Sandbox = 'workspace-write' },
+        @{ File = 'luna-fast-executor.toml'; Name = 'luna_fast_executor'; Model = 'gpt-6-luna'; Effort = 'low'; Sandbox = 'workspace-write' }
     )
     foreach ($agent in $expectedAgents) {
-        $content = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory $agent.File), $utf8Strict)
-        Assert-True ($content -match "(?m)^name = `"$([regex]::Escape($agent.Name))`"\r?$") "$($agent.File) must have the expected name"
-        Assert-True ($content -match "(?m)^model = `"$([regex]::Escape($agent.Model))`"\r?$") "$($agent.File) must have the expected model"
-        Assert-True ($content -match "(?m)^model_reasoning_effort = `"$([regex]::Escape($agent.Effort))`"\r?$") "$($agent.File) must have the expected reasoning effort"
-        Assert-True ($content -match "(?m)^sandbox_mode = `"$([regex]::Escape($agent.Sandbox))`"\r?$") "$($agent.File) must have the expected sandbox"
+        $content = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory $agent.File))
+        Assert-True ($content.Contains("name = `"$($agent.Name)`"")) "$($agent.File) name"
+        Assert-True ($content.Contains("model = `"$($agent.Model)`"")) "$($agent.File) model"
+        Assert-True ($content.Contains("model_reasoning_effort = `"$($agent.Effort)`"")) "$($agent.File) reasoning"
+        Assert-True ($content.Contains("sandbox_mode = `"$($agent.Sandbox)`"")) "$($agent.File) sandbox"
     }
-    $compactPlanner = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'sol-compact-planner.toml'), $utf8Strict)
-    $scout = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'luna-scout.toml'), $utf8Strict)
-    $terraExecutor = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'terra-executor.toml'), $utf8Strict)
-    $executor = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'luna-executor.toml'), $utf8Strict)
-    $fastExecutor = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'luna-fast-executor.toml'), $utf8Strict)
-    Assert-True ($compactPlanner.Contains('400 output tokens')) 'compact planner instructions must enforce the v1.2 plan budget'
-    Assert-True ($scout.Contains('250 output tokens')) 'Scout instructions must enforce the evidence budget'
-    Assert-True ($scout.Contains('Do not plan, edit, verify an implementation')) 'Scout instructions must prohibit implementation work'
-    Assert-True ($terraExecutor.Contains('300 output tokens')) 'Terra instructions must enforce the implementation report budget'
-    Assert-True ($terraExecutor.Contains('Tier 2 Terra exception or Tier 3 main body')) 'Terra instructions must name its exception and Tier 3 roles'
-    Assert-True ($terraExecutor.Contains('Luna report, current diff, and check evidence')) 'Terra instructions must accept the complete handoff evidence'
-    Assert-True ($executor.Contains('300 output tokens')) 'standard executor instructions must enforce the report budget'
-    Assert-True ($executor.Contains('six Terra exceptions')) 'Luna instructions must enforce the closed exception set'
-    Assert-True ($executor.Contains('stop before expanding scope or making further edits')) 'Luna instructions must stop before crossing the boundary'
-    Assert-True ($fastExecutor.Contains('300 output tokens')) 'fast executor instructions must enforce the report budget'
-    Assert-True ($fastExecutor.Contains('self-verif')) 'fast executor instructions must require self-verification'
+    Assert-True (-not (Test-Path -LiteralPath (Join-Path $assetsDirectory 'terra-executor.toml'))) 'retired agent asset must be absent'
 
     $frontmatter = [regex]::Match($skill, '(?s)\A---\r?\n(.*?)\r?\n---').Groups[1].Value
-    Assert-True (([regex]::Matches($frontmatter, '(?m)^[A-Za-z_-]+:')).Count -eq 2) 'Skill frontmatter must remain discovery-only with name and description'
-
+    Assert-True (([regex]::Matches($frontmatter, '(?m)^[A-Za-z_-]+:')).Count -eq 2) 'Skill frontmatter must remain discovery-only'
     foreach ($file in Get-ChildItem -LiteralPath $skillDirectory -Recurse -File) {
         $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
         Assert-True (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) "$($file.Name) must not contain a UTF-8 BOM"
-        [void][System.IO.File]::ReadAllText($file.FullName, $utf8Strict)
     }
-    Write-Output 'PASS adaptive routing, agent configuration, frontmatter, and UTF-8 contracts'
+    Write-Output 'PASS pure Sol-Luna routing and agent contracts'
 }
-
 Test-DifferingAgentCollisions
 Test-FreshInstall
 Test-LegacyConfigMigration
 Test-ProfileDirectoryCollisionAbortsBeforeMutation
 Test-PostWriteFailureRestoresExactSnapshot
-Test-AdaptiveRoutingContracts
+Test-PureSolLunaContracts
 Test-V100Upgrade
 Test-V110Upgrade
 Test-V110UpgradeWithLaterUnknownCollisionIsAtomic

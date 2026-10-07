@@ -1,4 +1,4 @@
 interface:
-  display_name: "Sol → Terra/Luna Handoff"
-  short_description: "Default Sol planning with Luna execution; adaptive is explicit."
-  default_prompt: "Use $sol-luna-handoff with Sol-to-Luna as the default execution profile. Read any persisted profile, choose conditional Luna discovery and the minimum necessary Sol planning, and use adaptive Terra/Luna routing only when adaptive was explicitly selected."
+  display_name: "Sol → Luna Workflow"
+  short_description: "Sol plans and verifies; Luna discovers and executes."
+  default_prompt: "Use $sol-luna-handoff to classify the task, apply conditional Luna discovery and the minimum necessary Sol planning, execute every tier with Luna, and preserve mandatory Sol verification for Tier 3."
