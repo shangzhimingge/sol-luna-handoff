@@ -188,6 +188,50 @@ function Test-LegacyConfigMigration {
     }
 }
 
+function Get-ManagedTerraContent {
+    return (@(
+        'name = "terra_executor"',
+        'description = "Implements Tier 2 Terra exceptions and the main body of Tier 3 work."',
+        'model = "gpt-5.6-terra"',
+        'model_reasoning_effort = "medium"',
+        'sandbox_mode = "workspace-write"',
+        'developer_instructions = """',
+        'Implement the supplied task brief or binding plan for a Tier 2 Terra exception or Tier 3 main body. A Luna handoff may also supply the original task brief or binding plan, Luna report, current diff, and check evidence. Preserve useful existing changes, continue from that evidence instead of restarting without cause, and remain the same executor for all remaining implementation and ordinary corrections.',
+        '',
+        'Exercise the judgment or non-local diagnosis required by the named Terra exception while preserving architecture, compatibility constraints, scope, and acceptance criteria. Run every required check, inspect the final diff, and self-review each acceptance criterion. Stop before further edits and report UPGRADE_NEEDED when scope or risk crosses the supplied tier; report PLAN_BLOCKED when a material architectural or requirement decision is missing. Return at most 300 output tokens with changed files, concise summary, commands and exit status, self-review, and remaining concerns or NONE. Store raw command output in task-local files. Do not spawn other agents or broaden scope.',
+        '"""',
+        ''
+    ) -join "`n")
+}
+
+function Test-RetiredTerraRollback {
+    foreach ($fault in @('after-legacy-agent-removal', 'after-config-write')) {
+        $codexHome = New-TemporaryCodexHome
+        try {
+            $agentsDirectory = Join-Path $codexHome 'agents'
+            [System.IO.Directory]::CreateDirectory($agentsDirectory) | Out-Null
+            [System.IO.File]::WriteAllText((Join-Path $agentsDirectory 'terra-executor.toml'), (Get-ManagedTerraContent), $utf8NoBom)
+            [System.IO.File]::WriteAllText(
+                (Join-Path $codexHome 'sol-luna-handoff.json'),
+                "{`n  `"schemaVersion`": 1,`n  `"executionProfile`": `"adaptive`"`n}`n",
+                $utf8NoBom
+            )
+            $before = Get-DirectoryState $codexHome
+            $caught = $null
+            try {
+                Invoke-TestInstaller $codexHome -Fault $fault
+            } catch {
+                $caught = $_.Exception.Message
+            }
+            Assert-True ($null -ne $caught -and $caught.Contains($fault)) "$fault must be injected"
+            Assert-True ((Get-DirectoryState $codexHome) -ceq $before) "$fault must restore exact content"
+            Write-Output "PASS $fault restores config and retired agent"
+        } finally {
+            Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Test-ProfileDirectoryCollisionAbortsBeforeMutation {
     $codexHome = New-TemporaryCodexHome
     try {
@@ -572,6 +616,7 @@ function Test-PureSolLunaContracts {
 Test-DifferingAgentCollisions
 Test-FreshInstall
 Test-LegacyConfigMigration
+Test-RetiredTerraRollback
 Test-ProfileDirectoryCollisionAbortsBeforeMutation
 Test-PostWriteFailureRestoresExactSnapshot
 Test-PureSolLunaContracts

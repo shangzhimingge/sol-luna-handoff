@@ -1,7 +1,7 @@
 {
   "name": "sol-luna-handoff",
-  "version": "1.6.0",
-  "description": "Sol planning and verification with Luna execution by default for Codex",
+  "version": "2.0.0",
+  "description": "Pure Sol planning and verification with Luna execution for Codex",
   "type": "module",
   "bin": {
     "sol-luna-handoff": "./bin/cli.mjs"

@@ -5,10 +5,12 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,
+  rmdirSync,
   rmSync,
   statSync,
   utimesSync,
@@ -268,7 +270,7 @@ function inspectGlobal(file, block) {
 
 function inspectConfig(file) {
   if (!existsSync(file)) return { state: 'missing' };
-  if (!statSync(file).isFile()) return { state: 'changed' };
+  if (!lstatSync(file).isFile()) return { state: 'changed' };
   const content = readUtf8(file);
   if (content === workflowConfigText) return { state: 'current', content };
   if (legacyConfigTexts.has(content)) return { state: 'legacy', content };
@@ -277,13 +279,19 @@ function inspectConfig(file) {
 
 function inspectRetiredTerra(file) {
   if (!existsSync(file)) return { state: 'missing' };
-  if (!statSync(file).isFile()) return { state: 'changed' };
+  if (!lstatSync(file).isFile()) return { state: 'changed' };
   const hash = sha256(readFileSync(file)).toUpperCase();
   return { state: retiredTerraHashes.has(hash) ? 'legacy' : 'changed', hash };
 }
 
 function ensureDirectory(directory) {
   mkdirSync(directory, { recursive: true });
+}
+
+function removeDirectoryIfNewAndEmpty(directory, existed) {
+  if (!existed && existsSync(directory) && statSync(directory).isDirectory() && readdirSync(directory).length === 0) {
+    rmdirSync(directory);
+  }
 }
 
 function copyDirectory(source, destination) {
@@ -414,6 +422,10 @@ function planInstall(paths) {
 }
 
 function applyInstall(paths, plan) {
+  const codexHomeExisted = existsSync(paths.codexHome);
+  const skillParent = path.dirname(paths.skillTarget);
+  const skillParentExisted = existsSync(skillParent);
+  const agentsDirectoryExisted = existsSync(paths.agentsDirectory);
   const oldAgents = new Map(plan.agents.map(({ target }) => [target, captureFile(target)]));
   const oldRetiredTerra = captureFile(plan.retiredTerra.target);
   const oldGlobal = captureFile(paths.globalAgentsPath);
@@ -441,6 +453,9 @@ function applyInstall(paths, plan) {
     restoreFile(plan.retiredTerra.target, oldRetiredTerra);
     restoreFile(paths.globalAgentsPath, oldGlobal);
     restoreFile(paths.profileConfigPath, oldConfig);
+    removeDirectoryIfNewAndEmpty(paths.agentsDirectory, agentsDirectoryExisted);
+    removeDirectoryIfNewAndEmpty(skillParent, skillParentExisted);
+    removeDirectoryIfNewAndEmpty(paths.codexHome, codexHomeExisted);
     throw error;
   }
 }

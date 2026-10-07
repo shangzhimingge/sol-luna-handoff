@@ -22,7 +22,6 @@ const agentFiles = [
   'sol-planner.toml',
   'sol-compact-planner.toml',
   'luna-scout.toml',
-  'terra-executor.toml',
   'luna-executor.toml',
   'luna-fast-executor.toml',
 ];
@@ -36,6 +35,7 @@ const requiredPackageFiles = [
   'docs/superpowers/specs/2026-08-30-tier2-luna-first-design.md',
   'docs/superpowers/specs/2026-09-01-sol-luna-default-design.md',
   'docs/superpowers/specs/2026-09-01-sol-luna-profile-design.md',
+  'docs/superpowers/specs/2026-10-08-pure-sol-luna-design.md',
   'package.json',
   'skill/sol-luna-handoff/SKILL.md',
   'skill/sol-luna-handoff/agents/openai.yaml',
@@ -159,8 +159,8 @@ test('the packed package installs, diagnoses, reinstalls idempotently, and unins
   assert.match(installed.stdout, /Installed Sol.*Luna Handoff/u);
   assert.equal(existsSync(path.join(codexHome, 'skills', 'sol-luna-handoff', 'SKILL.md')), true);
   assert.deepEqual(JSON.parse(readFileSync(path.join(codexHome, 'sol-luna-handoff.json'), 'utf8')), {
-    schemaVersion: 1,
-    executionProfile: 'sol-luna',
+    schemaVersion: 2,
+    workflow: 'sol-luna',
   });
   for (const fileName of agentFiles) {
     assert.equal(existsSync(path.join(codexHome, 'agents', fileName)), true, `Agent missing: ${fileName}`);
@@ -186,28 +186,31 @@ test('the packed package installs, diagnoses, reinstalls idempotently, and unins
   assert.equal(readFileSync(path.join(codexHome, 'AGENTS.md'), 'utf8'), originalGlobal);
 });
 
-test('the packed package supports the sol-luna profile lifecycle', (t) => {
+test('the packed package exposes only the v2 Sol-Luna workflow', (t) => {
   const { tarball, cache } = pack(t);
   const codexHome = makeTemporaryDirectory(t, 'sol-luna-packed-profile-home-');
 
-  const installed = runPackedCli(tarball, cache, codexHome, ['install', '--profile', 'sol-luna']);
+  const installed = runPackedCli(tarball, cache, codexHome, ['install']);
   assert.equal(installed.status, 0, installed.stderr);
   assert.deepEqual(JSON.parse(readFileSync(path.join(codexHome, 'sol-luna-handoff.json'), 'utf8')), {
-    schemaVersion: 1,
-    executionProfile: 'sol-luna',
+    schemaVersion: 2,
+    workflow: 'sol-luna',
   });
-  const healthy = runPackedCli(tarball, cache, codexHome, ['doctor', '--profile', 'sol-luna']);
+  const healthy = runPackedCli(tarball, cache, codexHome, ['doctor']);
   assert.equal(healthy.status, 0, healthy.stderr);
+  const rejected = runPackedCli(tarball, cache, codexHome, ['install', '--profile', 'sol-luna']);
+  assert.notEqual(rejected.status, 0);
   const uninstalled = runPackedCli(tarball, cache, codexHome, ['uninstall']);
   assert.equal(uninstalled.status, 0, uninstalled.stderr);
   assert.equal(existsSync(path.join(codexHome, 'sol-luna-handoff.json')), false);
 });
 
-test('the PowerShell installer exposes an atomic profile contract', () => {
+test('the PowerShell installer exposes an atomic v2 workflow contract', () => {
   const script = readFileSync(path.join(root, 'skill', 'sol-luna-handoff', 'scripts', 'install-agents.ps1'), 'utf8');
-  assert.match(script, /ValidateSet\('adaptive',\s*'sol-luna'\)/);
-  assert.match(script, /\[string\]\$Profile\s*=\s*'sol-luna'/);
+  assert.doesNotMatch(script, /ValidateSet\('adaptive'|\[string\]\$Profile/);
   assert.match(script, /sol-luna-handoff\.json/);
-  assert.match(script, /executionProfile/);
+  assert.match(script, /schemaVersion`": 2/);
+  assert.match(script, /workflow`": `"sol-luna/);
+  assert.match(script, /retiredTerraHashes/);
   assert.match(script, /Write-BytesAtomically[^]*profile/i);
 });
