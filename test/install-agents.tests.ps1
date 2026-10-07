@@ -165,8 +165,8 @@ function Test-FreshInstall {
         Assert-True ($globalContent.Contains($startMarker)) 'fresh install must add the managed start marker'
         Assert-True ($globalContent.Contains($endMarker)) 'fresh install must add the managed end marker'
         $profile = [System.IO.File]::ReadAllText((Join-Path $codexHome 'sol-luna-handoff.json')) | ConvertFrom-Json
-        Assert-True ($profile.schemaVersion -eq 1) 'fresh install must write profile schema 1'
-        Assert-True ($profile.executionProfile -ceq 'sol-luna') 'fresh install must default to sol-luna'
+        Assert-True ($profile.schemaVersion -eq 2) 'fresh install must write workflow schema 2'
+        Assert-True ($profile.workflow -ceq 'sol-luna') 'fresh install must write the only supported workflow'
         Write-Output 'PASS fresh install copies agents and global block'
     } finally {
         Remove-Item -LiteralPath $codexHome -Recurse -Force -ErrorAction SilentlyContinue
@@ -676,4 +676,6 @@ Test-V110UpgradeWithLaterUnknownCollisionIsAtomic
 Test-MalformedGlobalMarkers
 Test-IdenticalFilesAreIdempotent
 Test-WhatIfDoesNotMutate
+Assert-True (-not ([System.IO.File]::ReadAllText($installerPath).Contains('[string]$Profile'))) 'PowerShell installer must remove the Profile interface'
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $assetsDirectory 'terra-executor.toml'))) 'Terra asset must be retired'
 Write-Output 'ALL TESTS PASSED'

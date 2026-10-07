@@ -606,3 +606,99 @@ test('help succeeds and an unknown command is rejected', (t) => {
   assert.notEqual(unknown.status, 0);
   assert.match(unknown.stderr, /Unknown command: surprise/);
 });
+
+const v2Config = '{\n  "schemaVersion": 2,\n  "workflow": "sol-luna"\n}\n';
+
+for (const legacyProfile of ['adaptive', 'sol-luna']) {
+  test(`exact v1 ${legacyProfile} configuration migrates to the v2 workflow`, (t) => {
+    const codexHome = makeCodexHome(t);
+    writeFileSync(
+      path.join(codexHome, profileConfigName),
+      `{\n  "schemaVersion": 1,\n  "executionProfile": "${legacyProfile}"\n}\n`,
+      'utf8',
+    );
+
+    const result = runCli(codexHome, ['install']);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(path.join(codexHome, profileConfigName), 'utf8'), v2Config);
+  });
+}
+
+for (const invalidConfig of [
+  '{\n  "schemaVersion": 2,\n  "workflow": "sol-luna",\n  "extra": true\n}\n',
+  '{\n  "schemaVersion": 3,\n  "workflow": "sol-luna"\n}\n',
+  '{\n  "schemaVersion": 2,\n  "workflow": "adaptive"\n}\n',
+]) {
+  test(`unrecognized configuration fails before writes: ${invalidConfig.trim()}`, (t) => {
+    const codexHome = makeCodexHome(t);
+    writeFileSync(path.join(codexHome, profileConfigName), invalidConfig, 'utf8');
+    const before = snapshot(codexHome);
+
+    const result = runCli(codexHome, ['install']);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /configuration collision|unrecognized/i);
+    assert.deepEqual(snapshot(codexHome), before);
+  });
+}
+
+test('install removes an exact managed Terra agent while preserving five active agents', (t) => {
+  const codexHome = makeCodexHome(t);
+  const retiredTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
+  mkdirSync(path.dirname(retiredTerra), { recursive: true });
+  copyFileSync(path.join(assets, 'terra-executor.toml'), retiredTerra);
+
+  const result = runCli(codexHome, ['install']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(retiredTerra), false);
+  assert.equal(readdirSync(path.join(codexHome, 'agents')).filter((name) => name.endsWith('.toml')).length, 5);
+});
+
+for (const fault of ['after-legacy-agent-removal', 'after-config-write']) {
+  test(`${fault} restores exact v1 configuration and managed Terra bytes`, (t) => {
+    const codexHome = makeCodexHome(t);
+    const config = path.join(codexHome, profileConfigName);
+    const retiredTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
+    writeFileSync(config, '{\n  "schemaVersion": 1,\n  "executionProfile": "adaptive"\n}\n', 'utf8');
+    mkdirSync(path.dirname(retiredTerra), { recursive: true });
+    copyFileSync(path.join(assets, 'terra-executor.toml'), retiredTerra);
+    const before = snapshot(codexHome);
+
+    const result = runCli(codexHome, ['install'], {
+      NODE_ENV: 'test',
+      SOL_LUNA_HANDOFF_TEST_FAULT: fault,
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, new RegExp(fault));
+    assert.deepEqual(snapshot(codexHome), before);
+  });
+}
+
+test('profile options are rejected before mutation', (t) => {
+  const codexHome = makeCodexHome(t);
+  const before = snapshot(codexHome);
+  for (const args of [['install', '--profile', 'adaptive'], ['doctor', '--profile', 'sol-luna']]) {
+    const result = runCli(codexHome, args);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Unexpected arguments/i);
+    assert.deepEqual(snapshot(codexHome), before);
+  }
+});
+
+test('uninstall removes exact legacy config and managed Terra residue', (t) => {
+  const codexHome = makeCodexHome(t);
+  const config = path.join(codexHome, profileConfigName);
+  const retiredTerra = path.join(codexHome, 'agents', 'terra-executor.toml');
+  writeFileSync(config, '{\n  "schemaVersion": 1,\n  "executionProfile": "sol-luna"\n}\n', 'utf8');
+  mkdirSync(path.dirname(retiredTerra), { recursive: true });
+  copyFileSync(path.join(assets, 'terra-executor.toml'), retiredTerra);
+
+  const result = runCli(codexHome, ['uninstall']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(config), false);
+  assert.equal(existsSync(retiredTerra), false);
+});
