@@ -581,6 +581,7 @@ function Test-WhatIfDoesNotMutate {
 
 function Test-PureSolLunaContracts {
     $skill = [System.IO.File]::ReadAllText((Join-Path $skillDirectory 'SKILL.md'))
+    $installer = [System.IO.File]::ReadAllText($installerPath)
     $interfaceMetadata = [System.IO.File]::ReadAllText((Join-Path $skillDirectory 'agents\openai.yaml'))
     $globalRule = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory 'global-agents.md'))
     Assert-True ($skill.Contains('Executor: luna')) 'route line must select Luna'
@@ -604,6 +605,13 @@ function Test-PureSolLunaContracts {
         Assert-True ($content.Contains("sandbox_mode = `"$($agent.Sandbox)`"")) "$($agent.File) sandbox"
     }
     Assert-True (-not (Test-Path -LiteralPath (Join-Path $assetsDirectory 'terra-executor.toml'))) 'retired agent asset must be absent'
+    foreach ($hash in @(
+        '7F6E96C0A70D268E14B80C9C97A14B8A85F92BD29269613F325DAC65D927BE0A',
+        'A3E0F1D48B537A0F6A5E48D1F952438E4F2149E8CB76DB0FF24A629231CD1984',
+        '076A1C969AD06409017500DB4321779DAE41B6A6BD1639078C52CD06901624A3'
+    )) {
+        Assert-True ($installer.Contains($hash)) "v1.6 Luna executor hash must be allowlisted: $hash"
+    }
 
     $frontmatter = [regex]::Match($skill, '(?s)\A---\r?\n(.*?)\r?\n---').Groups[1].Value
     Assert-True (([regex]::Matches($frontmatter, '(?m)^[A-Za-z_-]+:')).Count -eq 2) 'Skill frontmatter must remain discovery-only'

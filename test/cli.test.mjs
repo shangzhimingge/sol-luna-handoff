@@ -415,6 +415,17 @@ test('an exact v1.6 Skill tree is atomically upgraded to the default Sol-Luna pr
   assert.deepEqual(readProfile(codexHome), { schemaVersion: 2, workflow: 'sol-luna' });
 });
 
+test('v1.6 Luna executor LF, CRLF, and mixed checkout hashes are allowlisted', () => {
+  const cli = readFileSync(cliPath, 'utf8');
+  for (const hash of [
+    '7F6E96C0A70D268E14B80C9C97A14B8A85F92BD29269613F325DAC65D927BE0A',
+    'A3E0F1D48B537A0F6A5E48D1F952438E4F2149E8CB76DB0FF24A629231CD1984',
+    '076A1C969AD06409017500DB4321779DAE41B6A6BD1639078C52CD06901624A3',
+  ]) {
+    assert.match(cli, new RegExp(hash), `missing approved Luna executor hash ${hash}`);
+  }
+});
+
 test('malformed managed markers abort before any target is changed', (t) => {
   const codexHome = makeCodexHome(t);
   writeFileSync(path.join(codexHome, 'AGENTS.md'), `${startMarker}\npartial\n`, 'utf8');
