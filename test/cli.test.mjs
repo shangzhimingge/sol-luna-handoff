@@ -398,6 +398,23 @@ test('an exact v1.5.0 Skill tree is atomically upgraded to the default Sol-Luna 
   assert.deepEqual(readProfile(codexHome), { schemaVersion: 2, workflow: 'sol-luna' });
 });
 
+test('an exact v1.6 Skill tree is atomically upgraded to the default Sol-Luna profile', (t) => {
+  const legacyCommit = '17f01bd';
+  if (!hasGitCommit(legacyCommit)) {
+    t.skip(`${legacyCommit} is absent in this checkout`);
+    return;
+  }
+  const codexHome = makeCodexHome(t);
+  const installedSkill = path.join(codexHome, 'skills', 'sol-luna-handoff');
+  restoreTaggedSkill(legacyCommit, installedSkill);
+
+  const result = runCli(codexHome, ['install']);
+
+  assert.equal(result.status, 0, result.stderr);
+  assertInstalled(codexHome);
+  assert.deepEqual(readProfile(codexHome), { schemaVersion: 2, workflow: 'sol-luna' });
+});
+
 test('malformed managed markers abort before any target is changed', (t) => {
   const codexHome = makeCodexHome(t);
   writeFileSync(path.join(codexHome, 'AGENTS.md'), `${startMarker}\npartial\n`, 'utf8');
