@@ -41,11 +41,22 @@ Tier 阈值、条件式 Scout、修正次数和证据预算继续保持确定性
 
 | Agent | 模型 / 推理 | 沙箱 | 职责 |
 | --- | --- | --- | --- |
-| `sol_planner` | `gpt-6.1-sol` / high | read-only | Tier 3 规划与验证；证据触发验证 |
-| `sol_compact_planner` | `gpt-6.1-sol` / medium | read-only | 有界 Tier 2 重规划 |
+| `sol_planner` | `gpt-6.2-sol` / high | read-only | Tier 3 规划与验证；证据触发验证 |
+| `sol_compact_planner` | `gpt-6.2-sol` / medium | read-only | 有界 Tier 2 重规划 |
 | `luna_scout` | `gpt-6-luna` / low | read-only | 压缩发现证据 |
 | `luna_executor` | `gpt-6-luna` / medium | workspace-write | Tier 2、Tier 3 实现 |
 | `luna_fast_executor` | `gpt-6-luna` / low | workspace-write | Tier 1 直接实现 |
+
+## 模型选择（2.1）
+
+首选 **`gpt-6.2-sol` / `gpt-6.2-luna`**。如果当前 Codex 模型目录尚未列出支持所需推理档位的 `gpt-6.2-luna`，就使用目录中最新的兼容 Luna（目前为 `gpt-6-luna`）。上表列的是离线默认值。
+
+- **自动（默认）：** 安装和 Skill 预检时读取本地 Codex 模型缓存（最长七天），按数字版本分别选最新 Sol 和 Luna。无需联网或常驻进程。缓存缺失、过期或暂时缺少某个系列时，保留该系列已选模型。
+- **查看：** `npx -y github:shangzhimingge/sol-luna-handoff models status` 只读展示已安装、首选和待应用模型。
+- **立即刷新：** 将上面命令的 `status` 换成 `refresh`。
+- **手动固定：** 用 `models set --sol gpt-6.2-sol --luna gpt-6-luna`，两个 ID 都须出现在新鲜缓存中；用 `models auto` 恢复自动。
+
+配置保存在 `$CODEX_HOME/sol-luna-models.json`。更新保留五个角色的提示词、推理档位和沙箱设置。PowerShell 安装同样需要 Node.js 18+。切换后请新建 Codex 任务；使用 GPT-6.2 Sol 的 Codex CLI 需 0.166.0 或更新版本。
 
 ## 命令
 

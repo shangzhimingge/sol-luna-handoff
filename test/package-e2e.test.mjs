@@ -40,6 +40,7 @@ const requiredPackageFiles = [
   'skill/sol-luna-handoff/SKILL.md',
   'skill/sol-luna-handoff/agents/openai.yaml',
   'skill/sol-luna-handoff/assets/global-agents.md',
+  'skill/sol-luna-handoff/assets/model-policy.mjs',
   ...agentFiles.map((fileName) => `skill/sol-luna-handoff/assets/${fileName}`),
   'skill/sol-luna-handoff/scripts/install-agents.ps1',
 ];

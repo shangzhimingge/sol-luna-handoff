@@ -10,9 +10,10 @@ Select the least costly Sol-Luna route that satisfies the task's scope and risk,
 ## Preflight
 
 1. Read `$CODEX_HOME/sol-luna-handoff.json`, where `CODEX_HOME` defaults to `~/.codex`. The only current document is schema version `2` with `workflow` equal to `sol-luna`. A missing document selects this sole workflow. An exact schema-version-1 managed document requires running the installer to migrate it. For malformed, customized, or unsupported content, return `NEEDS_CONTEXT` with the exact configuration problem before routing.
-2. Check whether `sol_planner`, `sol_compact_planner`, `luna_scout`, `luna_executor`, and `luna_fast_executor` are selectable.
-3. If any are absent or the configuration requires migration, run `scripts/install-agents.ps1` from this Skill directory. Newly installed agents may require a fresh task to become selectable; until then, use the fallback contracts below.
-4. Preserve the parent task's sandbox and approval settings.
+2. Resolve the model policy without writing: run `node "$SKILL_ROOT/assets/model-policy.mjs" resolve "$CODEX_HOME"` (resolve the default Codex home and this loaded Skill's absolute root first). Use the returned `selected.sol` and `selected.luna`; `preferred` is informational. Only a fresh local catalogue can change automatic choices. If the installed policy is invalid, report the problem rather than guessing.
+3. Check whether `sol_planner`, `sol_compact_planner`, `luna_scout`, `luna_executor`, and `luna_fast_executor` are selectable.
+4. If any are absent, the workflow requires migration, or the model policy reports `changed: true`, refresh the managed agents with `scripts/install-agents.ps1` from this Skill directory, within the parent task's permissions. On a model-only refresh use `-AgentsOnly`; on non-Windows use the standalone CLI `models refresh`. If discovery still reflects the old configuration, use the resolved model in an explicit fallback dispatch when the client supports it, or start a new task to load the updated TOMLs.
+5. Preserve the parent task's sandbox and approval settings.
 
 ## Deterministic routing
 
@@ -115,10 +116,10 @@ The verifier returns `VERIFIED` or a bounded numbered findings list naming the f
 
 When a named custom agent is unavailable, dispatch a fresh agent with the matching configuration and contract:
 
-- `sol_planner`: `gpt-6.1-sol`, high reasoning, read-only; full planning or verification contract.
-- `sol_compact_planner`: `gpt-6.1-sol`, medium reasoning, read-only; the 400-token compact-plan contract.
-- `luna_scout`: `gpt-6-luna`, low reasoning, read-only; the 250-token discovery-evidence contract.
-- `luna_executor`: `gpt-6-luna`, medium reasoning, workspace-write; Tier 2 and Tier 3 implementation with a stop-before-expansion contract and a 300-token report.
-- `luna_fast_executor`: `gpt-6-luna`, low reasoning, workspace-write; Tier 1 direct execution and self-verification with a 300-token report.
+- `sol_planner`: `selected.sol`, high reasoning, read-only; full planning or verification contract.
+- `sol_compact_planner`: `selected.sol`, medium reasoning, read-only; the 400-token compact-plan contract.
+- `luna_scout`: `selected.luna`, low reasoning, read-only; the 250-token discovery-evidence contract.
+- `luna_executor`: `selected.luna`, medium reasoning, workspace-write; Tier 2 and Tier 3 implementation with a stop-before-expansion contract and a 300-token report.
+- `luna_fast_executor`: `selected.luna`, low reasoning, workspace-write; Tier 1 direct execution and self-verification with a 300-token report.
 
 Reuse the same main executor for correction rounds and preserve the selected tier's Scout, planning, execution, and verification rules.

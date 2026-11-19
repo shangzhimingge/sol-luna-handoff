@@ -46,6 +46,93 @@ function runCli(codexHome, args = [], env = {}) {
   });
 }
 
+function modelCache(home, slugs, fetched = new Date()) {
+  const supported_reasoning_levels = ['low', 'medium', 'high'].map((effort) => ({ effort }));
+  writeFileSync(path.join(home, 'models_cache.json'), JSON.stringify({
+    fetched_at: fetched.toISOString(),
+    models: slugs.map((slug) => ({ slug, visibility: 'list', supported_reasoning_levels })),
+  }));
+}
+
+test('model policy refreshes from a fresh catalogue, pins a pair, and resumes auto', (t) => {
+  const home = makeCodexHome(t);
+  const run = (args) => {
+    const result = runCli(home, args);
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout;
+  };
+  const status = () => JSON.parse(run(['models', 'status']));
+  const modelFile = (agent) => readFileSync(path.join(home, 'agents', agent + '.toml'), 'utf8');
+  run(['install']);
+  assert.deepEqual(status().preferred, { sol: 'gpt-6.2-sol', luna: 'gpt-6.2-luna' });
+  assert.match(modelFile('luna-executor'), /model = "gpt-6-luna"/);
+  modelCache(home, ['gpt-6.2-sol', 'gpt-6-luna', 'gpt-6.2-luna', 'gpt-6.99-luna-preview']);
+  const before = snapshot(home);
+  assert.equal(status().changed, true);
+  assert.deepEqual(snapshot(home), before);
+  run(['models', 'refresh']);
+  assert.match(modelFile('luna-executor'), /model = "gpt-6.2-luna"/);
+  assert.match(modelFile('sol-planner'), /model = "gpt-6.2-sol"/);
+  const refreshed = snapshot(home);
+  run(['models', 'refresh']);
+  assert.deepEqual(snapshot(home), refreshed);
+  assert.notEqual(runCli(home, ['models', 'set', '--sol', 'gpt-6-luna', '--luna', 'gpt-6.2-sol']).status, 0);
+  assert.deepEqual(snapshot(home), refreshed);
+  run(['models', 'set', '--sol', 'gpt-6.2-sol', '--luna', 'gpt-6-luna']);
+  assert.equal(status().mode, 'pinned');
+  modelCache(home, ['gpt-6.2-sol', 'gpt-6.10-sol', 'gpt-6-luna', 'gpt-6.2-luna'], new Date(0));
+  run(['models', 'auto']);
+  assert.deepEqual(status().installed, { sol: 'gpt-6.2-sol', luna: 'gpt-6-luna' });
+  modelCache(home, ['gpt-6.2-sol', 'gpt-6.10-sol', 'gpt-6-luna', 'gpt-6.2-luna', 'gpt-6.9-sol']);
+  run(['models', 'refresh']);
+  assert.deepEqual(status().installed, { sol: 'gpt-6.10-sol', luna: 'gpt-6.2-luna' });
+  run(['doctor']);
+  run(['uninstall']);
+  assert.equal(existsSync(path.join(home, 'sol-luna-models.json')), false);
+});
+
+test('model refresh rolls back agent and policy changes; preserves customized roles', (t) => {
+  const home = makeCodexHome(t);
+  assert.equal(runCli(home, ['install']).status, 0);
+  modelCache(home, ['gpt-6.2-sol', 'gpt-6.2-luna']);
+  const before = contentSnapshot(home);
+  const failed = runCli(home, ['models', 'refresh'], { NODE_ENV: 'test', SOL_LUNA_HANDOFF_TEST_FAULT: 'after-config-write' });
+  assert.match(failed.stderr, /Injected test fault/);
+  assert.deepEqual(contentSnapshot(home), before);
+  const file = path.join(home, 'agents', 'luna-executor.toml');
+  writeFileSync(file, readFileSync(file, 'utf8').replace('workspace-write', 'read-only'));
+  const customized = snapshot(home);
+  assert.match(runCli(home, ['models', 'refresh']).stderr, /Custom-agent collision/);
+  assert.deepEqual(snapshot(home), customized);
+});
+
+test('models refresh can independently provision agents without touching workflow activation', (t) => {
+  const home = makeCodexHome(t);
+  const workflow = path.join(home, profileConfigName);
+  writeFileSync(workflow, 'not owned by model refresh');
+  const result = runCli(home, ['models', 'refresh']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(workflow, 'utf8'), 'not owned by model refresh');
+  assert.equal(existsSync(path.join(home, 'AGENTS.md')), false);
+  assert.equal(existsSync(path.join(home, 'skills')), false);
+});
+
+test('upgrade recognizes the 2.0 skill and installed agent templates', (t) => {
+  const old = '6df11dcac755081a3a6f8f6254ae7a467c4d8458';
+  if (!hasGitCommit(old)) return t.skip('2.0 commit not present in checkout');
+  const home = makeCodexHome(t);
+  restoreTaggedSkill(old, path.join(home, 'skills', 'sol-luna-handoff'));
+  for (const name of agentFiles) {
+    restoreTaggedFile(old, 'skill/sol-luna-handoff/assets/' + name, path.join(home, 'agents', name));
+  }
+  const result = runCli(home, ['install']);
+  assert.equal(result.status, 0, result.stderr);
+  assertSkillInstalled(home);
+  for (const name of agentFiles) {
+    assert.equal(normalizedText(path.join(home, 'agents', name)), normalizedText(path.join(assets, name)));
+  }
+});
+
 function listFiles(directory, prefix = '') {
   if (!existsSync(directory)) return [];
   const output = [];

@@ -1,6 +1,6 @@
 {
   "name": "sol-luna-handoff",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Pure Sol planning and verification with Luna execution for Codex",
   "type": "module",
   "bin": {

@@ -1,5 +1,5 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
-param()
+param([switch]$AgentsOnly)
 
 $ErrorActionPreference = 'Stop'
 
@@ -207,7 +207,7 @@ function Invoke-TestFault {
     }
 }
 
-$profileEntryExists = Test-Path -LiteralPath $profileConfigPath
+$profileEntryExists = -not $AgentsOnly -and (Test-Path -LiteralPath $profileConfigPath)
 if ($profileEntryExists) {
     $profileEntry = Get-Item -LiteralPath $profileConfigPath -Force
     if (-not (Test-RegularFileEntry -Entry $profileEntry)) {
@@ -243,11 +243,20 @@ if ($retiredTerraExists) {
     $retiredTerraNeedsRemoval = $true
 }
 
+$modelPolicyPath = Join-Path $codexHome 'sol-luna-models.json'
+$modelResult = & node (Join-Path $sourceDirectory 'model-policy.mjs') resolve $codexHome
+if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the Sol-Luna model policy.' }
+$modelPlan = $modelResult | ConvertFrom-Json
+$modelLine = '(?m)^model = "gpt-[0-9.]+-(?:sol|luna)"(?=\r?$)'
+
 # Preflight every custom-agent destination before making any filesystem changes.
 $agentInstallPlans = foreach ($fileName in $agentFiles) {
     $sourcePath = [System.IO.Path]::GetFullPath((Join-Path $sourceDirectory $fileName))
     $destinationPath = [System.IO.Path]::GetFullPath((Join-Path $agentsDirectory $fileName))
-    $sourceBytes = [System.IO.File]::ReadAllBytes($sourcePath)
+    $family = $fileName.Split('-')[0]
+    $template = [System.IO.File]::ReadAllText($sourcePath, $utf8Strict)
+    $sourceText = $template -creplace $modelLine, ('model = "' + $modelPlan.selected.$family + '"')
+    $sourceBytes = $utf8NoBom.GetBytes($sourceText)
     $destinationExists = Test-Path -LiteralPath $destinationPath
     $needsWrite = -not $destinationExists
 
@@ -260,7 +269,16 @@ $agentInstallPlans = foreach ($fileName in $agentFiles) {
         if (-not (Test-ByteArrayEqual -Left $sourceBytes -Right $destinationBytes)) {
             $destinationHash = Get-Sha256Hex -Bytes $destinationBytes
             $knownHashes = @($knownLegacyAgentHashes[$fileName])
-            if ($knownHashes -contains $destinationHash) {
+            $actual = $utf8Strict.GetString($destinationBytes) -replace "`r`n|`r", "`n"
+            $acceptedModels = @($modelPlan.selected.$family)
+            if ($null -ne $modelPlan.installed) { $acceptedModels += $modelPlan.installed.$family }
+            $acceptedModels += if ($family -ceq 'sol') { 'gpt-6.1-sol'; 'gpt-6.2-sol' } else { 'gpt-6-luna' }
+            $canonical = $false
+            foreach ($model in $acceptedModels) {
+                $candidate = ($template -creplace $modelLine, ('model = "' + $model + '"')) -replace "`r`n|`r", "`n"
+                if ($candidate -ceq $actual) { $canonical = $true; break }
+            }
+            if ($knownHashes -contains $destinationHash -or $canonical) {
                 $needsWrite = $true
             } else {
                 throw "Custom-agent collision: destination exists with different content: $destinationPath"
@@ -276,60 +294,63 @@ $agentInstallPlans = foreach ($fileName in $agentFiles) {
     }
 }
 
-$managedBlock = [System.IO.File]::ReadAllText($managedBlockPath, $utf8Strict)
-$escapedStartMarker = [System.Text.RegularExpressions.Regex]::Escape($startMarker)
-$escapedEndMarker = [System.Text.RegularExpressions.Regex]::Escape($endMarker)
-$managedBlockPattern = "(?ms)\A[ \t]*$escapedStartMarker[ \t]*\r?\n.*?^[ \t]*$escapedEndMarker[ \t]*(?:\r?\n)?\z"
-$managedStartMarkerCount = [System.Text.RegularExpressions.Regex]::Matches($managedBlock, "(?m)^[ \t]*$escapedStartMarker[ \t]*\r?$").Count
-$managedEndMarkerCount = [System.Text.RegularExpressions.Regex]::Matches($managedBlock, "(?m)^[ \t]*$escapedEndMarker[ \t]*\r?$").Count
+if (-not $AgentsOnly) {
+    $managedBlock = [System.IO.File]::ReadAllText($managedBlockPath, $utf8Strict)
+    $escapedStartMarker = [System.Text.RegularExpressions.Regex]::Escape($startMarker)
+    $escapedEndMarker = [System.Text.RegularExpressions.Regex]::Escape($endMarker)
+    $managedBlockPattern = "(?ms)\A[ \t]*$escapedStartMarker[ \t]*\r?\n.*?^[ \t]*$escapedEndMarker[ \t]*(?:\r?\n)?\z"
+    $managedStartMarkerCount = [System.Text.RegularExpressions.Regex]::Matches($managedBlock, "(?m)^[ \t]*$escapedStartMarker[ \t]*\r?$").Count
+    $managedEndMarkerCount = [System.Text.RegularExpressions.Regex]::Matches($managedBlock, "(?m)^[ \t]*$escapedEndMarker[ \t]*\r?$").Count
 
-if ($managedStartMarkerCount -ne 1 -or
-    $managedEndMarkerCount -ne 1 -or
-    -not [System.Text.RegularExpressions.Regex]::IsMatch($managedBlock, $managedBlockPattern)) {
-    throw "Managed global rule must contain exactly one complete marker-delimited block: $managedBlockPath"
-}
-
-$globalEntryExists = Test-Path -LiteralPath $globalAgentsPath
-if ($globalEntryExists) {
-    $globalEntry = Get-Item -LiteralPath $globalAgentsPath -Force
-    if (-not (Test-RegularFileEntry -Entry $globalEntry)) {
-        throw "Managed global rule collision: destination is not a regular file: $globalAgentsPath"
+    if ($managedStartMarkerCount -ne 1 -or
+        $managedEndMarkerCount -ne 1 -or
+        -not [System.Text.RegularExpressions.Regex]::IsMatch($managedBlock, $managedBlockPattern)) {
+        throw "Managed global rule must contain exactly one complete marker-delimited block: $managedBlockPath"
     }
-}
-$existingGlobalAgents = if ($globalEntryExists) {
-    [System.IO.File]::ReadAllText($globalAgentsPath, $utf8Strict)
-} else {
-    ''
-}
 
-$newline = if ($existingGlobalAgents.Contains("`r`n")) { "`r`n" } else { "`n" }
-$normalizedManagedBlock = ($managedBlock.TrimEnd("`r", "`n") -replace "`r`n|`r|`n", $newline) + $newline
-$startMarkerCount = [System.Text.RegularExpressions.Regex]::Matches($existingGlobalAgents, "(?m)^[ \t]*$escapedStartMarker[ \t]*\r?$").Count
-$endMarkerCount = [System.Text.RegularExpressions.Regex]::Matches($existingGlobalAgents, "(?m)^[ \t]*$escapedEndMarker[ \t]*\r?$").Count
-
-if ($startMarkerCount -eq 0 -and $endMarkerCount -eq 0) {
-    if ($existingGlobalAgents.Length -eq 0) {
-        $updatedGlobalAgents = $normalizedManagedBlock
-    } elseif ($existingGlobalAgents.EndsWith($newline + $newline)) {
-        $updatedGlobalAgents = $existingGlobalAgents + $normalizedManagedBlock
-    } elseif ($existingGlobalAgents.EndsWith($newline)) {
-        $updatedGlobalAgents = $existingGlobalAgents + $newline + $normalizedManagedBlock
+    $globalEntryExists = Test-Path -LiteralPath $globalAgentsPath
+    if ($globalEntryExists) {
+        $globalEntry = Get-Item -LiteralPath $globalAgentsPath -Force
+        if (-not (Test-RegularFileEntry -Entry $globalEntry)) {
+            throw "Managed global rule collision: destination is not a regular file: $globalAgentsPath"
+        }
+    }
+    $existingGlobalAgents = if ($globalEntryExists) {
+        [System.IO.File]::ReadAllText($globalAgentsPath, $utf8Strict)
     } else {
-        $updatedGlobalAgents = $existingGlobalAgents + $newline + $newline + $normalizedManagedBlock
-    }
-} elseif ($startMarkerCount -eq 1 -and $endMarkerCount -eq 1) {
-    $installedBlockPattern = "(?ms)^[ \t]*$escapedStartMarker[ \t]*\r?\n.*?^[ \t]*$escapedEndMarker[ \t]*(?:\r?\n)?"
-    $installedBlockMatch = [System.Text.RegularExpressions.Regex]::Match($existingGlobalAgents, $installedBlockPattern)
-
-    if (-not $installedBlockMatch.Success) {
-        throw "Managed global rule markers are malformed in $globalAgentsPath"
+        ''
     }
 
-    $updatedGlobalAgents = $existingGlobalAgents.Substring(0, $installedBlockMatch.Index) +
-        $normalizedManagedBlock +
-        $existingGlobalAgents.Substring($installedBlockMatch.Index + $installedBlockMatch.Length)
-} else {
-    throw "Expected zero or one managed global rule block in $globalAgentsPath"
+    $newline = if ($existingGlobalAgents.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $normalizedManagedBlock = ($managedBlock.TrimEnd("`r", "`n") -replace "`r`n|`r|`n", $newline) + $newline
+    $startMarkerCount = [System.Text.RegularExpressions.Regex]::Matches($existingGlobalAgents, "(?m)^[ \t]*$escapedStartMarker[ \t]*\r?$").Count
+    $endMarkerCount = [System.Text.RegularExpressions.Regex]::Matches($existingGlobalAgents, "(?m)^[ \t]*$escapedEndMarker[ \t]*\r?$").Count
+
+    if ($startMarkerCount -eq 0 -and $endMarkerCount -eq 0) {
+        if ($existingGlobalAgents.Length -eq 0) {
+            $updatedGlobalAgents = $normalizedManagedBlock
+        } elseif ($existingGlobalAgents.EndsWith($newline + $newline)) {
+            $updatedGlobalAgents = $existingGlobalAgents + $normalizedManagedBlock
+        } elseif ($existingGlobalAgents.EndsWith($newline)) {
+            $updatedGlobalAgents = $existingGlobalAgents + $newline + $normalizedManagedBlock
+        } else {
+            $updatedGlobalAgents = $existingGlobalAgents + $newline + $newline + $normalizedManagedBlock
+        }
+    } elseif ($startMarkerCount -eq 1 -and $endMarkerCount -eq 1) {
+        $installedBlockPattern = "(?ms)^[ \t]*$escapedStartMarker[ \t]*\r?\n.*?^[ \t]*$escapedEndMarker[ \t]*(?:\r?\n)?"
+        $installedBlockMatch = [System.Text.RegularExpressions.Regex]::Match($existingGlobalAgents, $installedBlockPattern)
+
+        if (-not $installedBlockMatch.Success) {
+            throw "Managed global rule markers are malformed in $globalAgentsPath"
+        }
+
+        $updatedGlobalAgents = $existingGlobalAgents.Substring(0, $installedBlockMatch.Index) +
+            $normalizedManagedBlock +
+            $existingGlobalAgents.Substring($installedBlockMatch.Index + $installedBlockMatch.Length)
+    } else {
+        throw "Expected zero or one managed global rule block in $globalAgentsPath"
+    }
+
 }
 
 # All collision and marker validation is complete. Mutations begin here.
@@ -342,8 +363,11 @@ foreach ($plan in $agentInstallPlans) {
     $agentSnapshots[$plan.DestinationPath] = Get-FileSnapshot -Path $plan.DestinationPath
 }
 $retiredTerraSnapshot = Get-FileSnapshot -Path $retiredTerraPath
-$globalSnapshot = Get-FileSnapshot -Path $globalAgentsPath
-$profileSnapshot = Get-FileSnapshot -Path $profileConfigPath
+$modelSnapshot = Get-FileSnapshot -Path $modelPolicyPath
+if (-not $AgentsOnly) {
+    $globalSnapshot = Get-FileSnapshot -Path $globalAgentsPath
+    $profileSnapshot = Get-FileSnapshot -Path $profileConfigPath
+}
 
 try {
     if ($missingAgentFiles.Count -gt 0 -and
@@ -366,23 +390,29 @@ try {
     }
     Invoke-TestFault -Point 'after-legacy-agent-removal'
 
-    if ($updatedGlobalAgents -cne $existingGlobalAgents -and
+    if (-not $AgentsOnly -and $updatedGlobalAgents -cne $existingGlobalAgents -and
         $PSCmdlet.ShouldProcess($globalAgentsPath, "Install managed global rule from $managedBlockPath")) {
         Write-BytesAtomically -Path $globalAgentsPath -Bytes ($utf8NoBom.GetBytes($updatedGlobalAgents))
     }
     Invoke-TestFault -Point 'after-global-write'
 
-    if (($null -eq $existingProfileConfigBytes -or
+    if (-not $AgentsOnly -and ($null -eq $existingProfileConfigBytes -or
         -not (Test-ByteArrayEqual -Left $existingProfileConfigBytes -Right $profileConfigBytes)) -and
         $PSCmdlet.ShouldProcess($profileConfigPath, 'Install Sol-Luna workflow configuration')) {
         Write-BytesAtomically -Path $profileConfigPath -Bytes $profileConfigBytes
+    }
+    if ($modelPlan.changed -and $PSCmdlet.ShouldProcess($modelPolicyPath, 'Save the Sol-Luna model selection')) {
+        Write-BytesAtomically -Path $modelPolicyPath -Bytes ($utf8NoBom.GetBytes($modelPlan.stateText))
     }
     Invoke-TestFault -Point 'after-config-write'
 } catch {
     $installationError = $_
     try {
-        Restore-FileSnapshot -Snapshot $profileSnapshot
-        Restore-FileSnapshot -Snapshot $globalSnapshot
+        Restore-FileSnapshot -Snapshot $modelSnapshot
+        if (-not $AgentsOnly) {
+            Restore-FileSnapshot -Snapshot $profileSnapshot
+            Restore-FileSnapshot -Snapshot $globalSnapshot
+        }
         foreach ($plan in $agentInstallPlans) {
             Restore-FileSnapshot -Snapshot $agentSnapshots[$plan.DestinationPath]
         }
@@ -406,5 +436,7 @@ try {
 foreach ($plan in $agentInstallPlans) {
     Write-Output $plan.DestinationPath
 }
-Write-Output $globalAgentsPath
-Write-Output $profileConfigPath
+if (-not $AgentsOnly) {
+    Write-Output $globalAgentsPath
+    Write-Output $profileConfigPath
+}

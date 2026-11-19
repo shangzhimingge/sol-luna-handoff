@@ -44,8 +44,8 @@ test('configuration contract is schema 2 and has one workflow', async () => {
 
 test('agent models and permissions match the 2.0 contract', async () => {
   const expected = [
-    ['sol-planner.toml', 'sol_planner', 'gpt-6.1-sol', 'high', 'read-only'],
-    ['sol-compact-planner.toml', 'sol_compact_planner', 'gpt-6.1-sol', 'medium', 'read-only'],
+    ['sol-planner.toml', 'sol_planner', 'gpt-6.2-sol', 'high', 'read-only'],
+    ['sol-compact-planner.toml', 'sol_compact_planner', 'gpt-6.2-sol', 'medium', 'read-only'],
     ['luna-scout.toml', 'luna_scout', 'gpt-6-luna', 'low', 'read-only'],
     ['luna-executor.toml', 'luna_executor', 'gpt-6-luna', 'medium', 'workspace-write'],
     ['luna-fast-executor.toml', 'luna_fast_executor', 'gpt-6-luna', 'low', 'workspace-write'],

@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { defaults, inspectPolicy, planModels, policyPath, renderAgent } from '../skill/sol-luna-handoff/assets/model-policy.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bundledSkill = path.join(packageRoot, 'skill', 'sol-luna-handoff');
@@ -53,6 +54,7 @@ const knownLegacySkillDigests = new Set([
   '164f8325b78527cf1aa0eff8427807cb2e8d8d84160df89f2e73504781e2986f',
   '4c4fc1fd9226d561aafb039891f0bb7706d25653f56326e1fd5377abfe547a06',
   '7433d000650a6bc5c605d579243bedce99a0dda135867cb110d6d12b4b9efe6c',
+  'ee42c317f9dbb55094f1a38e26bdfdf54c41f894ab5fcea578629363e40db5df',
 ]);
 const knownLegacyAgentHashes = new Map([
   ['sol-planner.toml', new Set([
@@ -92,6 +94,8 @@ function usage() {
 
 Usage:
   sol-luna-handoff [install|doctor|uninstall]
+  sol-luna-handoff models [status|refresh|auto]
+  sol-luna-handoff models set --sol MODEL --luna MODEL
   sol-luna-handoff --help
 
 Commands:
@@ -106,6 +110,16 @@ Environment:
 
 function parseArguments(argv) {
   const [command = 'install', ...extra] = argv;
+  if (command === 'models') {
+    const [action = 'status', ...options] = extra;
+    if (['status', 'refresh', 'auto'].includes(action) && options.length === 0) return { command, action };
+    if (action === 'set' && options.length === 4 &&
+        new Set([options[0], options[2]]).size === 2 &&
+        [options[0], options[2]].every((flag) => ['--sol', '--luna'].includes(flag))) {
+      return { command, action, pinned: { [options[0].slice(2)]: options[1], [options[2].slice(2)]: options[3] } };
+    }
+    throw new Error('Expected models status|refresh|auto or models set --sol MODEL --luna MODEL');
+  }
   if (command === '--help' || command === '-h' || command === 'help') {
     if (extra.length > 0) throw new Error(`Unexpected arguments: ${extra.join(' ')}`);
     return { command: 'help' };
@@ -130,24 +144,12 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-function bytesEqual(left, right) {
-  return left.length === right.length && left.equals(right);
-}
-
 function readUtf8(file) {
   return utf8Decoder.decode(readFileSync(file));
 }
 
 function normalizeText(value) {
   return value.replace(/\r\n?/g, '\n');
-}
-
-function normalizedFileEqual(left, right) {
-  try {
-    return normalizeText(readUtf8(left)) === normalizeText(readUtf8(right));
-  } catch {
-    return bytesEqual(readFileSync(left), readFileSync(right));
-  }
 }
 
 function listFiles(directory, prefix = '') {
@@ -252,11 +254,19 @@ function inspectSkill(target) {
   return { state: 'changed', digest: targetDigest };
 }
 
-function inspectAgent(fileName, target) {
+function inspectAgent(fileName, target, selected, installed = null) {
+  const family = fileName.split('-')[0];
+  const template = readUtf8(path.join(assetsDirectory, fileName));
+  const desired = renderAgent(template, selected[family]);
   if (!existsSync(target)) return { state: 'missing' };
-  if (!statSync(target).isFile()) return { state: 'changed' };
-  const source = path.join(assetsDirectory, fileName);
-  if (normalizedFileEqual(source, target)) return { state: 'current' };
+  if (!lstatSync(target).isFile()) return { state: 'changed' };
+  let actual;
+  try { actual = normalizeText(readUtf8(target)); } catch { return { state: 'changed' }; }
+  if (normalizeText(desired) === actual) return { state: 'current' };
+  const recognizedModels = [defaults[family], installed?.[family], family === 'sol' ? 'gpt-6.1-sol' : 'gpt-6-luna'];
+  if (recognizedModels.some((model) => model && normalizeText(renderAgent(template, model)) === actual)) {
+    return { state: 'legacy' };
+  }
   const hash = sha256(readFileSync(target)).toUpperCase();
   if (knownLegacyAgentHashes.get(fileName)?.has(hash)) return { state: 'legacy' };
   return { state: 'changed' };
@@ -384,14 +394,15 @@ function injectTestFault(point) {
   }
 }
 
-function planInstall(paths) {
-  const block = bundledManagedBlock();
-  const skill = inspectSkill(paths.skillTarget);
+function planInstall(paths, action = 'refresh', pinned, agentsOnly = false) {
+  const modelPlan = planModels(paths.codexHome, action, pinned);
+  const block = agentsOnly ? null : bundledManagedBlock();
+  const skill = agentsOnly ? { state: 'current' } : inspectSkill(paths.skillTarget);
   if (skill.state === 'changed') throw new Error(`Installed Skill collision: destination contains unrecognized content: ${paths.skillTarget}`);
 
   const agents = agentFiles.map((fileName) => {
     const target = path.join(paths.agentsDirectory, fileName);
-    const inspection = inspectAgent(fileName, target);
+    const inspection = inspectAgent(fileName, target, modelPlan.selected, modelPlan.installed);
     if (inspection.state === 'changed') throw new Error(`Custom-agent collision: destination exists with different content: ${target}`);
     return { fileName, target, state: inspection.state };
   });
@@ -402,13 +413,14 @@ function planInstall(paths) {
     throw new Error(`Retired-agent collision: destination contains custom content: ${retiredTerraTarget}`);
   }
 
-  const existingGlobal = existsSync(paths.globalAgentsPath) ? readUtf8(paths.globalAgentsPath) : '';
-  const updatedGlobal = installGlobalContent(existingGlobal, block, paths.globalAgentsPath);
-  const installedConfig = inspectConfig(paths.profileConfigPath);
+  const existingGlobal = !agentsOnly && existsSync(paths.globalAgentsPath) ? readUtf8(paths.globalAgentsPath) : '';
+  const updatedGlobal = agentsOnly ? '' : installGlobalContent(existingGlobal, block, paths.globalAgentsPath);
+  const installedConfig = agentsOnly ? { content: workflowConfigText } : inspectConfig(paths.profileConfigPath);
   if (installedConfig.state === 'changed') {
     throw new Error(`Workflow configuration collision: destination contains unrecognized content: ${paths.profileConfigPath}`);
   }
   return {
+    agentsOnly,
     block,
     skill,
     agents,
@@ -416,8 +428,9 @@ function planInstall(paths) {
     existingGlobal,
     updatedGlobal,
     installedConfig,
+    modelPlan,
     updatedConfig: workflowConfigText,
-    changed: skill.state !== 'current'
+    changed: modelPlan.changed || skill.state !== 'current'
       || agents.some((agent) => agent.state !== 'current')
       || retiredTerra.state !== 'missing'
       || updatedGlobal !== existingGlobal
@@ -432,13 +445,18 @@ function applyInstall(paths, plan) {
   const agentsDirectoryExisted = existsSync(paths.agentsDirectory);
   const oldAgents = new Map(plan.agents.map(({ target }) => [target, captureFile(target)]));
   const oldRetiredTerra = captureFile(plan.retiredTerra.target);
-  const oldGlobal = captureFile(paths.globalAgentsPath);
-  const oldConfig = captureFile(paths.profileConfigPath);
+  const oldGlobal = plan.agentsOnly ? null : captureFile(paths.globalAgentsPath);
+  const oldConfig = plan.agentsOnly ? null : captureFile(paths.profileConfigPath);
+  const modelFile = policyPath(paths.codexHome);
+  const oldModels = captureFile(modelFile);
   let skillTransaction = null;
   try {
     if (plan.skill.state !== 'current') skillTransaction = replaceSkillDirectory(bundledSkill, paths.skillTarget);
     for (const agent of plan.agents) {
-      if (agent.state !== 'current') atomicWrite(agent.target, readFileSync(path.join(assetsDirectory, agent.fileName)));
+      if (agent.state !== 'current') {
+        const template = readUtf8(path.join(assetsDirectory, agent.fileName));
+        atomicWrite(agent.target, Buffer.from(renderAgent(template, plan.modelPlan.selected[agent.fileName.split('-')[0]])));
+      }
     }
     if (plan.retiredTerra.state === 'legacy') rmSync(plan.retiredTerra.target, { force: true });
     injectTestFault('after-legacy-agent-removal');
@@ -446,17 +464,25 @@ function applyInstall(paths, plan) {
     if (plan.installedConfig.content !== plan.updatedConfig) {
       atomicWrite(paths.profileConfigPath, Buffer.from(plan.updatedConfig, 'utf8'));
     }
+    if (plan.modelPlan.changed) atomicWrite(modelFile, Buffer.from(plan.modelPlan.stateText));
     injectTestFault('after-config-write');
     injectTestFault('after-global-write');
-    const health = collectHealth(paths, plan.block);
-    if (!health.healthy) throw new Error('Post-install verification failed');
+    const healthy = plan.agentsOnly
+      ? inspectPolicy(paths.codexHome).text === plan.modelPlan.stateText &&
+        plan.agents.every(({ fileName, target }) => inspectAgent(fileName, target, plan.modelPlan.selected).state === 'current') &&
+        inspectRetiredTerra(plan.retiredTerra.target).state === 'missing'
+      : collectHealth(paths, plan.block).healthy;
+    if (!healthy) throw new Error('Post-install verification failed');
     skillTransaction?.commit();
   } catch (error) {
     skillTransaction?.rollback();
     for (const [target, captured] of oldAgents) restoreFile(target, captured);
     restoreFile(plan.retiredTerra.target, oldRetiredTerra);
-    restoreFile(paths.globalAgentsPath, oldGlobal);
-    restoreFile(paths.profileConfigPath, oldConfig);
+    if (!plan.agentsOnly) {
+      restoreFile(paths.globalAgentsPath, oldGlobal);
+      restoreFile(paths.profileConfigPath, oldConfig);
+    }
+    restoreFile(modelFile, oldModels);
     removeDirectoryIfNewAndEmpty(paths.agentsDirectory, agentsDirectoryExisted);
     removeDirectoryIfNewAndEmpty(skillParent, skillParentExisted);
     removeDirectoryIfNewAndEmpty(paths.codexHome, codexHomeExisted);
@@ -465,10 +491,11 @@ function applyInstall(paths, plan) {
 }
 
 function collectHealth(paths, block = bundledManagedBlock()) {
+  const { state: models } = inspectPolicy(paths.codexHome);
   const skill = inspectSkill(paths.skillTarget);
   const agents = agentFiles.map((fileName) => ({
     fileName,
-    state: inspectAgent(fileName, path.join(paths.agentsDirectory, fileName)).state,
+    state: inspectAgent(fileName, path.join(paths.agentsDirectory, fileName), models?.selected ?? defaults).state,
   }));
   let global;
   try {
@@ -485,6 +512,7 @@ function collectHealth(paths, block = bundledManagedBlock()) {
     config,
     retiredTerra,
     healthy: skill.state === 'current'
+      && models !== null
       && agents.every((agent) => agent.state === 'current')
       && global.state === 'current'
       && config.state === 'current'
@@ -510,6 +538,9 @@ function install() {
 function doctor() {
   const paths = codexPaths();
   const health = collectHealth(paths, bundledManagedBlock());
+  const modelPlan = planModels(paths.codexHome);
+  console.log(`Models: ${modelPlan.mode}; installed ${JSON.stringify(modelPlan.installed)}; preferred ${JSON.stringify(modelPlan.preferred)}`);
+  if (modelPlan.changed) console.log(`Models refresh pending: ${JSON.stringify(modelPlan.selected)}`);
   console.log(`Skill: ${health.skill.state}`);
   for (const agent of health.agents) console.log(`Agent ${agent.fileName}: ${agent.state}`);
   console.log(`Global rule: ${health.global.state}`);
@@ -524,12 +555,13 @@ function doctor() {
 }
 
 function planUninstall(paths) {
+  const { state: models } = inspectPolicy(paths.codexHome);
   const block = bundledManagedBlock();
   const skill = inspectSkill(paths.skillTarget);
   if (skill.state === 'changed') throw new Error(`Refusing to uninstall: installed Skill was customized: ${paths.skillTarget}`);
   const agents = agentFiles.map((fileName) => {
     const target = path.join(paths.agentsDirectory, fileName);
-    const inspection = inspectAgent(fileName, target);
+    const inspection = inspectAgent(fileName, target, models?.selected ?? defaults);
     if (inspection.state === 'changed') throw new Error(`Refusing to uninstall: managed agent was customized: ${target}`);
     return { fileName, target, state: inspection.state };
   });
@@ -544,7 +576,7 @@ function planUninstall(paths) {
   if (config.state === 'changed') {
     throw new Error(`Refusing to uninstall: workflow configuration was customized: ${paths.profileConfigPath}`);
   }
-  return { skill, agents, retiredTerra: { ...retiredTerra, target: retiredTerraTarget }, existingGlobal, updatedGlobal, config };
+  return { skill, agents, retiredTerra: { ...retiredTerra, target: retiredTerraTarget }, existingGlobal, updatedGlobal, config, models };
 }
 
 function uninstall() {
@@ -554,7 +586,7 @@ function uninstall() {
     && plan.agents.every((agent) => agent.state === 'missing')
     && plan.retiredTerra.state === 'missing'
     && plan.updatedGlobal === plan.existingGlobal
-    && plan.config.state === 'missing') {
+    && plan.config.state === 'missing' && !plan.models) {
     console.log('Sol → Luna Handoff is not installed.');
     return;
   }
@@ -564,6 +596,8 @@ function uninstall() {
   const oldRetiredTerra = captureFile(plan.retiredTerra.target);
   const oldGlobal = captureFile(paths.globalAgentsPath);
   const oldConfig = captureFile(paths.profileConfigPath);
+  const modelFile = policyPath(paths.codexHome);
+  const oldModels = captureFile(modelFile);
   let skillMoved = false;
   try {
     if (plan.skill.state !== 'missing') {
@@ -576,10 +610,11 @@ function uninstall() {
     if (plan.retiredTerra.state !== 'missing') rmSync(plan.retiredTerra.target, { force: true });
     if (plan.updatedGlobal !== plan.existingGlobal) atomicWrite(paths.globalAgentsPath, Buffer.from(plan.updatedGlobal, 'utf8'));
     if (plan.config.state !== 'missing') rmSync(paths.profileConfigPath, { force: true });
+    if (plan.models) rmSync(modelFile, { force: true });
     if (existsSync(paths.skillTarget)
       || plan.agents.some((agent) => existsSync(agent.target))
       || existsSync(plan.retiredTerra.target)
-      || existsSync(paths.profileConfigPath)) {
+      || existsSync(paths.profileConfigPath) || existsSync(modelFile)) {
       throw new Error('Post-uninstall verification failed: managed files remain');
     }
     const remainingGlobal = existsSync(paths.globalAgentsPath) ? readUtf8(paths.globalAgentsPath) : '';
@@ -596,13 +631,14 @@ function uninstall() {
     restoreFile(plan.retiredTerra.target, oldRetiredTerra);
     restoreFile(paths.globalAgentsPath, oldGlobal);
     restoreFile(paths.profileConfigPath, oldConfig);
+    restoreFile(modelFile, oldModels);
     throw error;
   }
   console.log('Uninstalled Sol → Luna Handoff managed content.');
 }
 
 function main() {
-  const { command } = parseArguments(process.argv.slice(2));
+  const { command, action, pinned } = parseArguments(process.argv.slice(2));
   if (command === 'help') {
     console.log(usage());
     return;
@@ -610,6 +646,15 @@ function main() {
   if (command === 'install') install();
   else if (command === 'doctor') doctor();
   else if (command === 'uninstall') uninstall();
+  else if (command === 'models') {
+    const paths = codexPaths();
+    if (action !== 'status') {
+      const plan = planInstall(paths, action, pinned, true);
+      if (plan.changed) applyInstall(paths, plan);
+    }
+    const { stateText, ...status } = planModels(paths.codexHome);
+    console.log(JSON.stringify(status, null, 2));
+  }
 }
 
 try {

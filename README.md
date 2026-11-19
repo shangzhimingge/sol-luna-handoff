@@ -41,11 +41,22 @@ Tier thresholds, conditional Scout triggers, correction limits, and evidence bud
 
 | Agent | Model / reasoning | Sandbox | Role |
 | --- | --- | --- | --- |
-| `sol_planner` | `gpt-6.1-sol` / high | read-only | Tier 3 planning and verification; evidence-triggered verification |
-| `sol_compact_planner` | `gpt-6.1-sol` / medium | read-only | Bounded Tier 2 replanning |
+| `sol_planner` | `gpt-6.2-sol` / high | read-only | Tier 3 planning and verification; evidence-triggered verification |
+| `sol_compact_planner` | `gpt-6.2-sol` / medium | read-only | Bounded Tier 2 replanning |
 | `luna_scout` | `gpt-6-luna` / low | read-only | Compressed discovery evidence |
 | `luna_executor` | `gpt-6-luna` / medium | workspace-write | Tier 2 and Tier 3 implementation |
 | `luna_fast_executor` | `gpt-6-luna` / low | workspace-write | Tier 1 direct implementation |
+
+## Model selection (2.1)
+
+The preferred pair is **`gpt-6.2-sol` / `gpt-6.2-luna`**. Until the latter appears in your Codex model catalogue with the required reasoning levels, Luna uses the newest compatible listed model (currently `gpt-6-luna`). The table shows the offline defaults.
+
+- **Automatic (default):** on installation and Skill preflight, select the highest numeric version in each family from the local Codex model cache (up to seven days old). It uses no network and starts no background task. If the cache is missing, stale, or temporarily lacks a family, keep the last selected model for that family.
+- **Inspect:** `npx -y github:shangzhimingge/sol-luna-handoff models status` shows installed, preferred and proposed models. It is read-only.
+- **Refresh now:** replace `status` with `refresh`.
+- **Pin a pair:** use `models set --sol gpt-6.2-sol --luna gpt-6-luna` with a fresh cache that lists both. Use `models auto` to resume automatic selections.
+
+The preference lives in `$CODEX_HOME/sol-luna-models.json`. The installer refreshes the five managed TOMLs without changing role prompts, reasoning effort or sandbox. Use Node.js 18+ for PowerShell bootstrap too. Start a new Codex task to reload agents after a switch. GPT-6.2 Sol on Codex CLI requires 0.166.0 or later.
 
 ## Commands
 

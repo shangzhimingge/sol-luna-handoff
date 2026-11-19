@@ -391,7 +391,7 @@ function Get-V110BundledAgentContent {
         ) -join "`n"
     } else {
         $content = [System.IO.File]::ReadAllText((Join-Path $assetsDirectory $FileName), $utf8Strict)
-        $content = $content.Replace('gpt-6.1-sol', 'gpt-5.6-sol').Replace('gpt-6-luna', 'gpt-5.6-luna')
+        $content = $content.Replace('gpt-6.2-sol', 'gpt-5.6-sol').Replace('gpt-6-luna', 'gpt-5.6-luna')
     }
     $lfContent = $content.Replace("`r`n", "`n").Replace("`r", "`n")
     if ($NewlineStyle -ceq 'CRLF') {
@@ -591,8 +591,8 @@ function Test-PureSolLunaContracts {
     Assert-True (-not ($globalRule -match '(?i)terra|adaptive')) 'global rule must describe only Sol-Luna'
 
     $expectedAgents = @(
-        @{ File = 'sol-planner.toml'; Name = 'sol_planner'; Model = 'gpt-6.1-sol'; Effort = 'high'; Sandbox = 'read-only' },
-        @{ File = 'sol-compact-planner.toml'; Name = 'sol_compact_planner'; Model = 'gpt-6.1-sol'; Effort = 'medium'; Sandbox = 'read-only' },
+        @{ File = 'sol-planner.toml'; Name = 'sol_planner'; Model = 'gpt-6.2-sol'; Effort = 'high'; Sandbox = 'read-only' },
+        @{ File = 'sol-compact-planner.toml'; Name = 'sol_compact_planner'; Model = 'gpt-6.2-sol'; Effort = 'medium'; Sandbox = 'read-only' },
         @{ File = 'luna-scout.toml'; Name = 'luna_scout'; Model = 'gpt-6-luna'; Effort = 'low'; Sandbox = 'read-only' },
         @{ File = 'luna-executor.toml'; Name = 'luna_executor'; Model = 'gpt-6-luna'; Effort = 'medium'; Sandbox = 'workspace-write' },
         @{ File = 'luna-fast-executor.toml'; Name = 'luna_fast_executor'; Model = 'gpt-6-luna'; Effort = 'low'; Sandbox = 'workspace-write' }
