@@ -64,7 +64,7 @@ test('model policy refreshes from a fresh catalogue, pins a pair, and resumes au
   const status = () => JSON.parse(run(['models', 'status']));
   const modelFile = (agent) => readFileSync(path.join(home, 'agents', agent + '.toml'), 'utf8');
   run(['install']);
-  assert.deepEqual(status().preferred, { sol: 'gpt-6.2-sol', luna: 'gpt-6.2-luna' });
+  assert.deepEqual(status().preferred, { sol: 'gpt-6.2-sol', luna: 'gpt-6-luna' });
   assert.match(modelFile('luna-executor'), /model = "gpt-6-luna"/);
   modelCache(home, ['gpt-6.2-sol', 'gpt-6-luna', 'gpt-6.2-luna', 'gpt-6.99-luna-preview']);
   const before = snapshot(home);
@@ -131,6 +131,26 @@ test('upgrade recognizes the 2.0 skill and installed agent templates', (t) => {
   for (const name of agentFiles) {
     assert.equal(normalizedText(path.join(home, 'agents', name)), normalizedText(path.join(assets, name)));
   }
+});
+
+test('the exact 2.1.0 Skill refresh preserves auto mode and selected models', (t) => {
+  const legacy = '449bc1a07d1f060e6be4d09da9e6ddd1ca6aaea5';
+  if (!hasGitCommit(legacy)) return t.skip('2.1.0 commit not present in checkout');
+  const home = makeCodexHome(t);
+  restoreTaggedSkill(legacy, path.join(home, 'skills', 'sol-luna-handoff'));
+  writeFileSync(path.join(home, 'sol-luna-models.json'), JSON.stringify({
+    schemaVersion: 1,
+    mode: 'auto',
+    preferred: { sol: 'gpt-6.2-sol', luna: 'gpt-6.2-luna' },
+    selected: { sol: 'gpt-6.2-sol', luna: 'gpt-6-luna' },
+  }, null, 2) + '\n');
+  const result = runCli(home, ['install']);
+  assert.equal(result.status, 0, result.stderr);
+  assertSkillInstalled(home);
+  const state = JSON.parse(readFileSync(path.join(home, 'sol-luna-models.json'), 'utf8'));
+  assert.equal(state.mode, 'auto');
+  assert.deepEqual(state.selected, { sol: 'gpt-6.2-sol', luna: 'gpt-6-luna' });
+  assert.deepEqual(state.preferred, { sol: 'gpt-6.2-sol', luna: 'gpt-6-luna' });
 });
 
 function listFiles(directory, prefix = '') {

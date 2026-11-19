@@ -49,7 +49,7 @@ Tier thresholds, conditional Scout triggers, correction limits, and evidence bud
 
 ## Model selection (2.1)
 
-The preferred pair is **`gpt-6.2-sol` / `gpt-6.2-luna`**. Until the latter appears in your Codex model catalogue with the required reasoning levels, Luna uses the newest compatible listed model (currently `gpt-6-luna`). The table shows the offline defaults.
+The preferred pair is **`gpt-6.2-sol` / `gpt-6-luna`**. The preferred Luna model is also the offline default. Automatic model discovery can select a newer compatible Luna model when it appears in the fresh Codex model catalogue.
 
 - **Automatic (default):** on installation and Skill preflight, select the highest numeric version in each family from the local Codex model cache (up to seven days old). It uses no network and starts no background task. If the cache is missing, stale, or temporarily lacks a family, keep the last selected model for that family.
 - **Inspect:** `npx -y github:shangzhimingge/sol-luna-handoff models status` shows installed, preferred and proposed models. It is read-only.

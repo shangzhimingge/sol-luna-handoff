@@ -47,6 +47,7 @@ const retiredTerraHashes = new Set([
   '49BAA5F4707F6F97117A106BC6380E63CD71D4A5EE79DE4257B9F0742D18C16A',
 ]);
 const knownLegacySkillDigests = new Set([
+  '23030ef008cfc7f8d82b61f9fc9639b0de0e5ecc4a8f27b4b8d7dc0f6fe18e00',
   '04ed8cc9f7cd7361d423fc03db7fce6dd9916615e9fe3c0a9e56e221e1858600',
   '9bd7838e897c033d600f7caa93a282c36284034f4d8e9215f68fb8edac879baa',
   '0f10693ea535ea263d25dcf7f7f503bee3c705847e9b10b2eb1272db4f71b1ee',

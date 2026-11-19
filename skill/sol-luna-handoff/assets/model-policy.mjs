@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const defaults = Object.freeze({ sol: 'gpt-6.2-sol', luna: 'gpt-6-luna' });
-export const preferred = Object.freeze({ sol: 'gpt-6.2-sol', luna: 'gpt-6.2-luna' });
+export const preferred = defaults;
 const efforts = { sol: ['medium', 'high'], luna: ['low', 'medium'] };
 const families = Object.keys(efforts);
 const slugPattern = (family) => new RegExp('^gpt-([1-9][0-9]{0,2})(?:\\.([0-9]{1,3}))?-' + family + '$');

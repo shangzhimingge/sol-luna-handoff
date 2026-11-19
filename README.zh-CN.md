@@ -49,7 +49,7 @@ Tier 阈值、条件式 Scout、修正次数和证据预算继续保持确定性
 
 ## 模型选择（2.1）
 
-首选 **`gpt-6.2-sol` / `gpt-6.2-luna`**。如果当前 Codex 模型目录尚未列出支持所需推理档位的 `gpt-6.2-luna`，就使用目录中最新的兼容 Luna（目前为 `gpt-6-luna`）。上表列的是离线默认值。
+首选 **`gpt-6.2-sol` / `gpt-6-luna`**，Luna 首选模型同时也是离线默认值。自动模型发现会在 Codex 新鲜模型目录中出现更新的兼容 Luna 模型时选用新模型。
 
 - **自动（默认）：** 安装和 Skill 预检时读取本地 Codex 模型缓存（最长七天），按数字版本分别选最新 Sol 和 Luna。无需联网或常驻进程。缓存缺失、过期或暂时缺少某个系列时，保留该系列已选模型。
 - **查看：** `npx -y github:shangzhimingge/sol-luna-handoff models status` 只读展示已安装、首选和待应用模型。

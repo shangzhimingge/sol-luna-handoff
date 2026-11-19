@@ -61,6 +61,11 @@ test('agent models and permissions match the 2.0 contract', async () => {
   }
 });
 
+test('2.1.0 Skill digest is recognized as a legacy installation', async () => {
+  const cli = await read('bin/cli.mjs');
+  assert.match(cli, /23030ef008cfc7f8d82b61f9fc9639b0de0e5ecc4a8f27b4b8d7dc0f6fe18e00/);
+});
+
 test('tier thresholds, Scout triggers, correction limit, and budgets remain explicit', async () => {
   const skill = await read('skill/sol-luna-handoff/SKILL.md');
   includesAll(skill, [
